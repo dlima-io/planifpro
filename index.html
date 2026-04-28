@@ -4167,6 +4167,7 @@ async function gReloadFromSheet(){
     }
 
     initPlan(); initDragDrop();
+    renderBacklog(); // Show unscheduled processes in side panel
     gSetStatus('ok','☁ '+gSheetName+' — recargado '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
     toast('✓ Plan recargado desde Google Sheets ('+neqs.length+' equipos, '+newBacklog.length+' sin programar)');
     log('DRIVE LOAD','Cargado desde Google Sheets: '+gSheetName);
