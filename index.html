@@ -3403,7 +3403,7 @@ function dd(d){return{dow:['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay
 function stLabel(s){return{p:'Pendiente',e:'Emitida',a:'Asignada',pr:'Producción',an:'En análisis',t:'Terminada',li:'Limpieza',m:'Mant.',s:'SPA'}[s]||s;}
 function stBadge(s){return{p:'bp2',e:'be2',a:'ba2',pr:'bpr2',an:'ban2',t:'bt2',li:'bx2',m:'bx2',s:'bx2'}[s]||'bx2';}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
-function markChg(){hasChg=true;updBadge();}
+function markChg(){hasChg=true;updBadge();gScheduleSave();}
 // ════════════ CALENDAR ════════════
 function openCalPanel(){
   renderCalList();
@@ -4221,13 +4221,7 @@ async function gApiRequest(method, url, body){
   return resp.json();
 }
 
-// ── Auto-save hook: call after every plan change ──────────────────
-// Override markChg to also schedule a drive save
-const _origMarkChg = markChg;
-function markChg(){
-  _origMarkChg();
-  gScheduleSave();
-}
+// Auto-save is built into markChg() directly
 
 // Restore saved sheet on load
 try{
