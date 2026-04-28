@@ -1027,6 +1027,12 @@ function fmtLogFilename(){
     '_'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0');
 }
 
+// ── ID GENERATION ──
+function genId(){
+  // timestamp (base36) + random — globally unique, never repeats
+  return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+}
+
 // ── CALENDAR STATE ──
 // holidays: Set of 'YYYY-MM-DD' strings (no work at all)
 let holidays = new Set();
@@ -1229,7 +1235,7 @@ function xlsxEntry(val,note){
   const qm=note.match(/(\d[\d.,]+)\s*(KG|COMP|CAPS)/i);
   const lm=val.match(/L(\d+)/g);
   return {
-    id: Math.random().toString(36).slice(2),
+    id: genId(),
     nombre:val.replace(/-LIMP\s*$/i,'').trim(),
     codigo:cm?cm[1]:'', lote:lm?lm.join(' '):'',
     cantidad:qm?qm[1].replace(',','.'):'', unidad:qm?qm[2]:'',
@@ -1291,7 +1297,7 @@ function tryPlanCsv(text){
     const savedId=iID>=0?(cols[iID]||'').trim():'';
     const depsStr=iDeps>=0?(cols[iDeps]||'').trim():'';
     const entry={
-      id: savedId||Math.random().toString(36).slice(2),
+      id: savedId||genId(),
       nombre:nb,
       codigo:iC>=0?(cols[iC]||'').trim():'',
       lote:iL>=0?(cols[iL]||'').trim():'',
@@ -1774,7 +1780,7 @@ function ctxPasteEntry(){
   pushUndo();
   for(const orig of clipboard.entries){
     const copy = JSON.parse(JSON.stringify(orig));
-    copy.id = Math.random().toString(36).slice(2); // new stable ID
+    copy.id = genId(); // new stable ID
     copy.deps = []; // deps don't transfer — different context
     grid[equip][date].push(copy);
     log('PEGAR'+(clipboard.isCut?' (cortar)':''), `"${copy.nombre}" → ${equip} · ${dispDate(date)}`+(clipboard.isCut?` (DE: ${clipboard.srcEquip} · ${dispDate(clipboard.srcDate)})`:''));
@@ -1889,7 +1895,7 @@ function parseBacklogXlsx(wb){
     if(eq && dt) continue;
     const savedId=iID>=0?String(r[iID]||'').trim():'';
     backlog.push({
-      id: savedId||Math.random().toString(36).slice(2),
+      id: savedId||genId(),
       nombre:nb,
       codigo:iC>=0?String(r[iC]||'').trim():'',
       lote:iL>=0?String(r[iL]||'').trim():'',
@@ -1938,7 +1944,7 @@ function parseBacklogCsv(text){
     if(eq && dt) continue; // skip scheduled rows
     const savedId=iID>=0?(cols[iID]||'').trim():'';
     backlog.push({
-      id:savedId||Math.random().toString(36).slice(2),
+      id:savedId||genId(),
       nombre:nb,
       codigo:iC>=0?(cols[iC]||'').trim():'',
       lote:iL>=0?(cols[iL]||'').trim():'',
@@ -2873,7 +2879,7 @@ function saveEntry(){
   const deps=modalDeps; // populated by addDep/removeDep while modal was open
 
   const entry={
-    id: existingEntry?.id||Math.random().toString(36).slice(2),
+    id: existingEntry?.id||genId(),
     nombre,
     codigo:document.getElementById('fc').value.trim(),
     lote:document.getElementById('fl').value.trim(),
@@ -3102,7 +3108,7 @@ function loadXlsxCols(wb){
     const depsStr=iDp>=0?String(r[iDp]||'').trim():'';
     if(!eq||!dt){
       const blEntry={
-        id:savedId||Math.random().toString(36).slice(2),
+        id:savedId||genId(),
         nombre:nb,
         codigo:iC>=0?String(r[iC]||'').trim():'',
         lote:iL>=0?String(r[iL]||'').trim():'',
@@ -3125,7 +3131,7 @@ function loadXlsxCols(wb){
     if(!ng[eq][dt]) ng[eq][dt]=[];
     if(ng[eq][dt].length>=5) continue;
     const entry={
-      id:savedId||Math.random().toString(36).slice(2),
+      id:savedId||genId(),
       nombre:nb,
       codigo:iC>=0?String(r[iC]||'').trim():'',
       lote:iL>=0?String(r[iL]||'').trim():'',
@@ -4110,7 +4116,7 @@ async function gReloadFromSheet(){
       const savedId=get(iID);
       const depsStr=get(iDp);
       const entry={
-        id: savedId||Math.random().toString(36).slice(2),
+        id: savedId||genId(),
         nombre:nb, codigo:get(iC), lote:get(iL),
         cantidad:get(iQ), unidad:get(iU),
         estado:csvEstadoToCode(get(iSt))||'p',
@@ -4185,6 +4191,8 @@ async function gReloadFromSheet(){
     gSetStatus('ok','☁ '+gSheetName+' — recargado '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
     toast('✓ Plan recargado desde Google Sheets ('+neqs.length+' equipos, '+newBacklog.length+' sin programar)');
     log('DRIVE LOAD','Cargado desde Google Sheets: '+gSheetName);
+    // Auto-save immediately to persist any new IDs assigned to rows that had empty ID column
+    setTimeout(gSaveNow, 1500);
   } catch(err){
     gSetStatus('err','Error al cargar: '+err.message);
     toast('❌ Error cargando desde Drive: '+err.message);
