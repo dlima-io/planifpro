@@ -115,7 +115,9 @@ body.light .bl-chip-meta{color:#9c8c78}
 /* Dep highlight */
 body.light .chip.dep-hi{outline-color:var(--warn)}
 body.light .chip.dep-src{outline-color:var(--teal)}
-body.light .chip.dep-link-hover{outline-color:var(--teal);background:rgba(10,120,144,.07)!important}
+body.light #blDepCanvas{position:fixed;inset:0;pointer-events:none;z-index:50;display:none}
+#blDepCanvas.active{display:block}
+.chip.dep-link-hover{outline-color:var(--teal);background:rgba(10,120,144,.07)!important}
 body.light #linkModeBar{background:rgba(10,120,144,.08);border-color:rgba(10,120,144,.25);color:#0a7890}
 
 *{box-sizing:border-box;margin:0;padding:0}
@@ -217,6 +219,8 @@ body.light .chip.chip-cont{background:repeating-linear-gradient(
 #linkModeBar.show{display:block}
 .chip.dep-hi{outline:2px solid var(--warn);outline-offset:1px}
 .chip.dep-src{outline:2px solid var(--teal);outline-offset:1px}
+#blDepCanvas{position:fixed;inset:0;pointer-events:none;z-index:50;display:none}
+#blDepCanvas.active{display:block}
 .chip.dep-link-hover{outline:2px solid var(--teal);outline-offset:2px;background:rgba(34,211,238,.12)!important}
 .chip.fmt-hi{outline:1px solid rgba(255,255,255,.25);outline-offset:0}
 .fmt-badge{font-family:var(--mono);font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;white-space:nowrap;display:inline-block}
@@ -399,6 +403,8 @@ body.light .soon-row td:first-child{background:rgba(196,122,10,.07)!important}
 .bl-chip{background:var(--surf3);border:1px solid var(--border2);border-left:3px solid var(--purple);border-radius:4px;padding:5px 7px;font-size:10px;color:var(--text);cursor:grab;user-select:none;position:relative;transition:box-shadow .1s;width:100%}
 .bl-chip:hover{box-shadow:0 2px 8px rgba(0,0,0,.4);border-color:var(--text3)}
 .bl-chip.dragging{opacity:.3}
+.bl-chip.bl-dep-active{outline:2px solid var(--teal);outline-offset:2px;background:rgba(34,211,238,.08)!important}
+body.light .bl-chip.bl-dep-active{background:rgba(10,120,144,.06)!important}
 .bl-chip-name{font-size:10px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 .bl-chip-meta{font-size:9px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 body.light .bl-chip{background:#fdfaf7;color:#2c2218;border-color:#d0c5b8;border-left-color:var(--purple)}
@@ -611,6 +617,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
   </div>
 </div>
 
+<canvas id="blDepCanvas"></canvas>
 <div id="dg"></div>
 
 <!-- CALENDAR PANEL -->
@@ -1570,7 +1577,7 @@ function renderGantt(){
     bH+=row+'</tr>';
   }
   body.innerHTML=bH;
-  clearDepLines();
+  clearDepLines(); clearBlDepLines();
 }
 
 function buildChips(eq,key,entries){
@@ -2000,6 +2007,8 @@ function renderBacklog(){
       <div class="bl-chip-meta">${[entry.lote,entry.cantidad?(entry.cantidad+(entry.unidad?' '+entry.unidad:'')):'',entry.horas?entry.horas+'h':'',entry.fechaLimite?'📅'+entry.fechaLimite:'',entry.deps&&entry.deps.length?'🔗'+entry.deps.length:''].filter(Boolean).join(' · ')}</div>`;
     // Double click to edit
     div.addEventListener('dblclick', ()=>openBacklogEdit(i));
+    // Single click to show dep lines
+    div.addEventListener('click', ()=>blChipClick(i, div));
     // Right click — context menu for backlog
     div.addEventListener('contextmenu', e=>{ e.preventDefault(); e.stopPropagation(); showBlCtxMenu(e,i); });
     // Drag
@@ -2032,6 +2041,114 @@ function openBacklogEdit(i){
   acHide();
   document.getElementById('modal').classList.add('open');
   setTimeout(()=>document.getElementById('fn').focus(),60);
+}
+
+// ── BACKLOG DEP LINES ──
+let blDepHi = null; // {idx, el} — currently highlighted backlog chip
+
+function blChipClick(blIdx, chipEl){
+  const canvas = document.getElementById('blDepCanvas');
+  // Toggle off if same chip clicked again
+  if(blDepHi && blDepHi.idx === blIdx){
+    blDepHi = null;
+    canvas.classList.remove('active');
+    clearBlDepLines();
+    // Remove highlight from chip
+    document.querySelectorAll('.bl-chip.bl-dep-active').forEach(e=>e.classList.remove('bl-dep-active'));
+    return;
+  }
+  // Clear previous
+  document.querySelectorAll('.bl-chip.bl-dep-active').forEach(e=>e.classList.remove('bl-dep-active'));
+  blDepHi = {idx:blIdx, el:chipEl};
+  chipEl.classList.add('bl-dep-active');
+  drawBlDepLines(blIdx, chipEl);
+}
+
+function clearBlDepLines(){
+  const canvas = document.getElementById('blDepCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  canvas.classList.remove('active');
+}
+
+function drawBlDepLines(blIdx, srcEl){
+  const entry = backlog[blIdx];
+  if(!entry) return;
+
+  const canvas = document.getElementById('blDepCanvas');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  canvas.classList.add('active');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  if(!entry.deps||!entry.deps.length) return;
+
+  // Source: center of the backlog chip
+  const srcR = srcEl.getBoundingClientRect();
+  const sx = srcR.left + srcR.width/2;
+  const sy = srcR.top + srcR.height/2;
+
+  for(const dep of entry.deps){
+    const depEntry = findEntryById(dep.targetId);
+    const loc = dep.targetId ? findEntryLocation(dep.targetId) : null;
+
+    if(loc){
+      // Dep IS in Gantt — draw line to that chip
+      const depEl = findChipEl(loc.equip, loc.date, loc.idx);
+      if(depEl){
+        const dr = depEl.getBoundingClientRect();
+        const dx = dr.left + dr.width/2;
+        const dy = dr.top + dr.height/2;
+
+        // Line: backlog chip → gantt chip (teal)
+        ctx.strokeStyle = 'rgba(34,211,238,0.8)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5,4]);
+        ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(dx,dy); ctx.stroke();
+        // Arrow at gantt chip end
+        const angle = Math.atan2(sy-dy, sx-dx);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(dx,dy);
+        ctx.lineTo(dx+10*Math.cos(angle-0.4), dy+10*Math.sin(angle-0.4));
+        ctx.moveTo(dx,dy);
+        ctx.lineTo(dx+10*Math.cos(angle+0.4), dy+10*Math.sin(angle+0.4));
+        ctx.stroke();
+        ctx.setLineDash([5,4]);
+      }
+    } else {
+      // Dep NOT in Gantt — draw line to a label on the right side
+      // Show floating label near source indicating the dep name + status
+      const depName = depEntry ? depEntry.nombre : (dep.targetId||'?');
+      const inBacklog = depEntry && backlog.some(b=>b.id===dep.targetId);
+      const label = (inBacklog ? '📦 ' : '✗ ') + depName.slice(0,30);
+      const color = inBacklog ? 'rgba(245,158,11,0.9)' : 'rgba(239,68,68,0.9)';
+
+      // Draw dashed line to a floating bubble to the left of source
+      const ex = srcR.left - 20;
+      const ey = sy - 20 * (entry.deps.indexOf(dep));
+
+      ctx.strokeStyle = color.replace('0.9','0.6');
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4,4]);
+      ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Label bubble
+      ctx.font = '11px system-ui, sans-serif';
+      const tw = ctx.measureText(label).width;
+      const bx = ex - tw - 16, by = ey - 10, bw = tw+16, bh = 20;
+      // Clamp to screen
+      const bxC = Math.max(4, bx);
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(bxC, by, bw, bh, 4);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, bxC+8, ey+4);
+    }
+  }
 }
 
 // Backlog drag to gantt
@@ -4340,7 +4457,7 @@ let tT; function toast(m){const t=document.getElementById('toast');t.textContent
 
 // ════════════ KEYBOARD ════════════
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){closeModal();closeEP();acHide();depHi=null;clearDepLines();hideCtxMenu();clearSel();selMoveMode=false;closeLegend();closeCalPanel();closeFmtPanel();closeDlPanel();closeGConfig();}
+  if(e.key==='Escape'){closeModal();closeEP();acHide();depHi=null;clearDepLines();clearBlDepLines();blDepHi=null;document.querySelectorAll('.bl-chip.bl-dep-active').forEach(el=>el.classList.remove('bl-dep-active'));hideCtxMenu();clearSel();selMoveMode=false;closeLegend();closeCalPanel();closeFmtPanel();closeDlPanel();closeGConfig();}
   if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo();}
   // Ctrl+C / Ctrl+V for chips (only when modal is closed)
   if(!document.getElementById('modal').classList.contains('open')){
@@ -4354,6 +4471,12 @@ document.getElementById('ep').addEventListener('click',e=>{if(e.target===documen
 document.addEventListener('click',e=>{
   if(!e.target.closest('.acw')) acHide();
   if(!e.target.closest('#ctxMenu')) hideCtxMenu();
+  // Clear backlog dep lines when clicking outside backlog panel
+  if(!e.target.closest('#backlogPanel') && blDepHi){
+    blDepHi=null;
+    clearBlDepLines();
+    document.querySelectorAll('.bl-chip.bl-dep-active').forEach(el=>el.classList.remove('bl-dep-active'));
+  }
   if(document.getElementById('legendPanel').classList.contains('open')
      && !e.target.closest('#legendPanel')
      && !e.target.closest('[onclick*="openLegend"]')) closeLegend();
