@@ -503,7 +503,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
   <button class="bg" onclick="gSaveNow()" id="driveSaveBtn" style="display:none;font-size:11px;padding:2px 8px">💾 Guardar ahora</button>
 </div>
 <div id="driveChangeBanner">
-  ⚡ Otro usuario modificó el archivo
+  <span>⚡ Cambios externos</span>
   <button class="bp" onclick="gReloadFromSheet()" style="font-size:12px;padding:4px 12px">Recargar</button>
   <button class="bg" onclick="document.getElementById('driveChangeBanner').classList.remove('show')" style="font-size:12px;padding:4px 10px">Ignorar</button>
 </div>
@@ -981,6 +981,8 @@ let gToken = null;          // OAuth access token
 let gSheetId = null;        // Current spreadsheet ID
 let gSheetName = '';        // Spreadsheet name
 let gLastModified = null;   // Last known modified time (for polling)
+let gLastVersion = null;    // Last known Drive file version (integer, monotonic)
+let gLastModifier = '';     // Display name of last modifier
 let gPollTimer = null;      // Polling interval
 let gSaveTimer = null;      // Debounce timer for auto-save
 let gConnected = false;
@@ -4032,8 +4034,17 @@ async function gSaveNow(){
       { values: calRows }
     );
 
-    // Record save time locally (drive.readonly lets us get real modifiedTime on poll)
-    gLastModified = new Date().toISOString();
+    // Fetch real version from Drive after save (to anchor polling baseline)
+    try{
+      const meta = await gApiRequest('GET',
+        `https://www.googleapis.com/drive/v3/files/${gSheetId}?fields=version,modifiedTime,lastModifyingUser`
+      );
+      gLastVersion = meta.version;
+      gLastModified = meta.modifiedTime;
+    } catch(e){
+      gLastVersion = null;
+      gLastModified = new Date().toISOString();
+    }
     gSaving=false;
     gSetStatus('ok','☁ '+gSheetName+' — guardado '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
     log('DRIVE SAVE','Guardado en Google Sheets: '+gSheetName);
@@ -4156,13 +4167,16 @@ async function gReloadFromSheet(){
       }
     }catch(e){ /* Calendario sheet might not exist yet */ }
 
-    // Get modifiedTime via Drive API (needs drive.readonly scope)
+    // Get version + modifier info from Drive
     try{
       const meta = await gApiRequest('GET',
-        `https://www.googleapis.com/drive/v3/files/${gSheetId}?fields=modifiedTime`
+        `https://www.googleapis.com/drive/v3/files/${gSheetId}?fields=version,modifiedTime,lastModifyingUser`
       );
+      gLastVersion = meta.version;
       gLastModified = meta.modifiedTime;
+      gLastModifier = meta.lastModifyingUser?.displayName || '';
     } catch(e){
+      gLastVersion = null;
       gLastModified = new Date().toISOString();
     }
 
@@ -4188,23 +4202,36 @@ async function gCheckRemoteChanges(){
   if(!gToken||!gSheetId||gSaving) return;
   try{
     const meta = await gApiRequest('GET',
-      `https://www.googleapis.com/drive/v3/files/${gSheetId}?fields=modifiedTime`
+      `https://www.googleapis.com/drive/v3/files/${gSheetId}?fields=version,modifiedTime,lastModifyingUser`
     );
-    if(gLastModified && meta.modifiedTime !== gLastModified){
-      gLastModified = meta.modifiedTime; // update so banner only shows once
-      document.getElementById('driveChangeBanner').classList.add('show');
+    // Use version (integer) for comparison — much more reliable than timestamp strings
+    const remoteVersion = meta.version;
+    const remoteModifier = meta.lastModifyingUser?.displayName || '';
+    const remoteEmail = meta.lastModifyingUser?.emailAddress || '';
+
+    if(gLastVersion && remoteVersion !== gLastVersion){
+      // Version changed — show who changed it
+      gLastVersion = remoteVersion;
+      gLastModified = meta.modifiedTime;
+      gLastModifier = remoteModifier;
+
+      // Update banner with modifier name
+      const bannerEl = document.getElementById('driveChangeBanner');
+      const who = remoteModifier ? ` por ${remoteModifier}` : '';
+      const when = meta.modifiedTime
+        ? ' · ' + new Date(meta.modifiedTime).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})
+        : '';
+      bannerEl.querySelector('span') ?
+        (bannerEl.querySelector('span').textContent = '⚡ Cambios externos'+who+when) :
+        null;
+      bannerEl.classList.add('show');
+    } else if(!gLastVersion && remoteVersion){
+      // First poll — just anchor the version, don't show banner
+      gLastVersion = remoteVersion;
+      gLastModified = meta.modifiedTime;
+      gLastModifier = remoteModifier;
     }
-  } catch(e){
-    // drive.file scope can't read files not created by this app
-    // Try alternative: check spreadsheet revision count via Sheets API
-    try{
-      const info = await gApiRequest('GET',
-        `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}?fields=spreadsheetId`
-      );
-      // If we got here the sheet still exists — no error detection possible without drive scope
-      // Just skip — polling will work if drive.readonly is granted
-    } catch(e2){ /* ignore */ }
-  }
+  } catch(e){ /* ignore poll errors silently */ }
 }
 
 // ── Generic Google API request ────────────────────────────────────
