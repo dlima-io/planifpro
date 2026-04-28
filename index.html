@@ -1961,7 +1961,7 @@ function clearBacklog(){
   if(!backlog.length) return;
   if(!confirm('¿Vaciar el panel de procesos sin programar?')) return;
   backlog=[];
-  renderBacklog();
+  renderBacklog(); markChg();
 }
 
 function renderBacklog(){
@@ -2097,7 +2097,7 @@ function blDragStart(e){
             if(!blEntry.deps.some(d=>d.targetId===tEntry.id)){
               blEntry.deps.push({equip:tEq,date:tDate,idx:tIdx,targetId:tEntry.id});
               log('DEPENDENCIA',`"${blEntry.nombre}" (backlog) → depende de → "${tEntry.nombre}" (${tEq} · ${dispDate(tDate)})`);
-              renderBacklog();
+              renderBacklog(); markChg();
               toast('✓ Dependencia creada');
             } else { toast('Ya existe esa dependencia'); }
           }
@@ -2857,7 +2857,7 @@ function saveEntry(){
     entry.faltante=document.getElementById('ffa').value.trim();
     entry.horas=parseFloat(document.getElementById('fhoras').value)||0;
     entry.obs=document.getElementById('fo').value.trim();
-    closeModal(); renderBacklog();
+    closeModal(); renderBacklog(); markChg();
     toast('Proceso actualizado en backlog');
     return;
   }
@@ -3358,7 +3358,7 @@ function undo(){
   grid=prev.grid;eqs=prev.eqs;
   document.getElementById('undoBtn').disabled=undoStack.length===0;
   log('DESHACER', 'Se revirtió la última acción');
-  depHi=null; ra(); toast('Desecho ✓');
+  depHi=null; ra(); gScheduleSave(); toast('Desecho ✓');
 }
 
 // ════════════ UTILS ════════════
