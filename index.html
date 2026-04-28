@@ -3918,6 +3918,7 @@ function gConnect(){
       if(resp.error){ gSetStatus('err','Error de autenticación: '+resp.error); toast('❌ '+resp.error); return; }
       gToken = resp.access_token;
       gConnected = true;
+      try{ localStorage.setItem('planifpro_client_id', gClientId); }catch(e){}
       document.getElementById('driveBar').classList.add('show');
       document.getElementById('driveDisconnectBtn').style.display='inline-flex';
       document.getElementById('driveChangeBtn').style.display='inline-flex';
@@ -3933,7 +3934,11 @@ function gDisconnect(){
   if(!confirm('¿Desconectar Google Drive?')) return;
   gToken=null; gSheetId=null; gConnected=false;
   clearInterval(gPollTimer); gPollTimer=null;
+  try{ localStorage.removeItem('planifpro_sheet_id'); localStorage.removeItem('planifpro_sheet_name'); }catch(e){}
   document.getElementById('driveBar').classList.remove('show');
+  document.getElementById('driveDisconnectBtn').style.display='none';
+  document.getElementById('driveChangeBtn').style.display='none';
+  document.getElementById('driveSaveBtn').style.display='none';
   gSetStatus('','');
   toast('Desconectado de Google Drive');
 }
@@ -4223,12 +4228,58 @@ async function gApiRequest(method, url, body){
 
 // Auto-save is built into markChg() directly
 
-// Restore saved sheet on load
+// Restore saved sheet and auto-reconnect on load
 try{
   const sid=localStorage.getItem('planifpro_sheet_id');
   const sn=localStorage.getItem('planifpro_sheet_name');
-  if(sid&&sn){ gSheetId=sid; gSheetName=sn; }
+  const cid=localStorage.getItem('planifpro_client_id');
+  if(sid&&sn&&cid){
+    gSheetId=sid; gSheetName=sn; gClientId=cid;
+    // Show drive bar with "reconnect" prompt
+    document.getElementById('driveBar').classList.add('show');
+    document.getElementById('driveDot').className='';
+    document.getElementById('driveLabel').textContent='☁ '+sn+' — clic para reconectar';
+    // Auto-reconnect silently using saved client id
+    document.addEventListener('DOMContentLoaded', ()=>{
+      setTimeout(gAutoReconnect, 800);
+    });
+  }
 }catch(e){}
+
+function gAutoReconnect(){
+  if(!gClientId) return;
+  if(!window.google?.accounts?.oauth2){
+    // APIs not loaded yet, retry
+    setTimeout(gAutoReconnect, 1000); return;
+  }
+  gSetStatus('','☁ '+gSheetName+' — reconectando…');
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: gClientId,
+    scope: GAPI_SCOPES,
+    prompt: '', // silent — no popup if token cached
+    callback: async (resp) => {
+      if(resp.error){
+        gSetStatus('','☁ '+gSheetName+' — <button class="bg" onclick="openGConfig()" style="font-size:11px;padding:1px 6px">Reconectar</button>');
+        document.getElementById('driveLabel').innerHTML='☁ '+gSheetName+' — <button class="bg" onclick="gManualReconnect()" style="font-size:11px;padding:1px 6px">Reconectar</button>';
+        return;
+      }
+      gToken=resp.access_token;
+      gConnected=true;
+      document.getElementById('driveDisconnectBtn').style.display='inline-flex';
+      document.getElementById('driveChangeBtn').style.display='inline-flex';
+      document.getElementById('driveSaveBtn').style.display='inline-flex';
+      gSetStatus('saving','Cargando desde '+gSheetName+'…');
+      await gReloadFromSheet();
+      gStartPolling();
+    }
+  });
+  client.requestAccessToken();
+}
+
+function gManualReconnect(){
+  if(!gClientId){ openGConfig(); return; }
+  gAutoReconnect();
+}
 
 function updBadge(){document.getElementById('chgBadge').style.display=hasChg?'inline-block':'none';}
 
