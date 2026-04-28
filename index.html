@@ -4070,11 +4070,75 @@ async function gReloadFromSheet(){
     const rows = resp.values||[];
     if(!rows.length){ toast('La hoja está vacía'); gSetStatus('ok','☁ '+gSheetName); return; }
 
-    // Convert to CSV-like object and use tryPlanCsv logic
-    const hdrs = rows[0].map(h=>String(h).trim().toLowerCase());
-    const csvLines = [rows[0].join(','), ...rows.slice(1).map(r=>r.join(','))].join('\n');
-    if(!tryPlanCsv(csvLines)){
-      toast('No se pudo leer la hoja — verificá el formato');
+    // Parse rows directly (no CSV conversion — avoids comma/newline issues)
+    const hdrs = rows[0].map(h=>String(h||'').trim().toLowerCase());
+    const iE=hdrs.indexOf('equipo'), iD=hdrs.indexOf('fecha');
+    const iID=hdrs.indexOf('id');
+    const iN=hdrs.findIndex(h=>h==='nombre'||h==='producto');
+    const iC=hdrs.findIndex(h=>h==='código'||h==='codigo');
+    const iL=hdrs.indexOf('lote'), iQ=hdrs.indexOf('cantidad');
+    const iU=hdrs.findIndex(h=>h==='u.m.'||h==='unidad');
+    const iSt=hdrs.indexOf('estado');
+    const iH=hdrs.indexOf('horas');
+    const iFm=hdrs.indexOf('formato');
+    const iFL=hdrs.findIndex(h=>h.includes('límite')||h.includes('limite'));
+    const iFA=hdrs.indexOf('faltante');
+    const iDp=hdrs.findIndex(h=>h==='deps.'||h==='deps');
+    const iO=hdrs.findIndex(h=>h==='obs.'||h==='obs');
+
+    if(iN<0){ toast('No se encontró columna Nombre en la hoja'); gSetStatus('err','Formato inválido'); return; }
+
+    const ng={}, neqs=[], newBacklog=[], rawDeps=[];
+
+    for(let i=1;i<rows.length;i++){
+      const r=rows[i];
+      const get=(idx)=>idx>=0?String(r[idx]||'').trim():'';
+      const eq=get(iE), dt=get(iD), nb=get(iN);
+      if(!nb) continue;
+      const savedId=get(iID);
+      const depsStr=get(iDp);
+      const entry={
+        id: savedId||Math.random().toString(36).slice(2),
+        nombre:nb, codigo:get(iC), lote:get(iL),
+        cantidad:get(iQ), unidad:get(iU),
+        estado:csvEstadoToCode(get(iSt))||'p',
+        horas:parseFloat(get(iH))||0,
+        formato:get(iFm), fechaLimite:get(iFL),
+        faltante:get(iFA), obs:get(iO), deps:[],
+      };
+      ingestEntryOptions(entry);
+      if(!eq||!dt){
+        newBacklog.push(entry);
+        if(depsStr) rawDeps.push({entry,depsStr});
+      } else {
+        if(!ng[eq]){ng[eq]={};neqs.push(eq);}
+        if(!ng[eq][dt]) ng[eq][dt]=[];
+        if(ng[eq][dt].length<5){
+          ng[eq][dt].push(entry);
+          if(depsStr) rawDeps.push({entry,depsStr});
+        }
+      }
+    }
+
+    // Merge with existing eqs list to preserve equip order
+    const allEqs=[...new Set([...eqs,...neqs])];
+    eqs=allEqs.filter(e=>neqs.includes(e)||ng[e]);
+    grid=ng;
+    // Merge backlog
+    const newBlIds=new Set(newBacklog.map(b=>b.id));
+    backlog=[...backlog.filter(b=>!newBlIds.has(b.id)),...newBacklog];
+
+    // Second pass: resolve deps
+    for(const {entry,depsStr} of rawDeps){
+      const ids=depsStr.split(';').map(s=>s.trim()).filter(Boolean);
+      for(const targetId of ids){
+        const loc=findEntryLocationInGrid(ng,targetId);
+        if(loc){ entry.deps.push({...loc,targetId}); continue; }
+        const inBl=backlog.find(b=>b.id===targetId);
+        if(inBl){ entry.deps.push({equip:null,date:null,idx:null,targetId}); continue; }
+        const byName=findEntryByName(targetId,ng,[...backlog]);
+        if(byName) entry.deps.push({...byName.loc,targetId:byName.entry.id});
+      }
     }
 
     // Load Calendario if exists
@@ -4099,7 +4163,7 @@ async function gReloadFromSheet(){
 
     initPlan(); initDragDrop();
     gSetStatus('ok','☁ '+gSheetName+' — recargado '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
-    toast('✓ Plan recargado desde Google Sheets');
+    toast('✓ Plan recargado desde Google Sheets ('+neqs.length+' equipos, '+newBacklog.length+' sin programar)');
     log('DRIVE LOAD','Cargado desde Google Sheets: '+gSheetName);
   } catch(err){
     gSetStatus('err','Error al cargar: '+err.message);
