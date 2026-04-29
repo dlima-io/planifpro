@@ -187,6 +187,12 @@ textarea{resize:vertical}
 /* Day cells — KEY: allow multiple chips stacking */
 .dc{width:var(--cw);min-width:var(--cw);border-right:1px solid var(--border);padding:2px;vertical-align:top;position:relative;cursor:pointer}
 .dc.we{background:rgba(0,0,0,.22)}
+.dc.past{background:rgba(0,0,0,.18);opacity:.55}
+.dc.past.we{background:rgba(0,0,0,.32);opacity:.5}
+.th-past{opacity:.45}
+body.light .dc.past{background:rgba(0,0,0,.06);opacity:.6}
+body.light .dc.past.we{background:rgba(0,0,0,.1);opacity:.55}
+body.light .th-past{opacity:.4}
 .dc.holiday{background:repeating-linear-gradient(-45deg,rgba(239,68,68,.08),rgba(239,68,68,.08) 3px,transparent 3px,transparent 8px)!important;cursor:not-allowed}
 .dc.sat-enabled{background:rgba(34,211,238,.05)!important}
 .dc.triple-turno{background:rgba(167,139,250,.08)!important}
@@ -1381,36 +1387,40 @@ function initPlan(){
   document.getElementById('gv').style.display='block';
   document.getElementById('cv').style.display='none';
 
-  // Build month range: today-1m to max(today+3m, latest data month+1)
-  const today=new Date();
-  const minMonth=new Date(today.getFullYear(), today.getMonth()-1, 1); // 1 month back
-  const maxMonthDefault=new Date(today.getFullYear(), today.getMonth()+4, 0); // 3 months forward
+  // Build date range: today-30d to max(today+90d, latest data date)
+  const today=new Date(); today.setHours(0,0,0,0);
+
+  // Range start: today - 30 days
+  const rangeStart=new Date(today); rangeStart.setDate(rangeStart.getDate()-30);
+  // Range end: today + 90 days (minimum)
+  const rangeEndMin=new Date(today); rangeEndMin.setDate(rangeEndMin.getDate()+90);
 
   // Also include all months that have data
   const allKeys=new Set();
   for(const eq of eqs) for(const k of Object.keys(grid[eq]||{})) allKeys.add(k);
-  let dataMax=maxMonthDefault;
+  let rangeEnd=rangeEndMin;
   if(allKeys.size){
     const latestKey=[...allKeys].sort().pop();
-    const [ly,lm]=latestKey.split('-').map(Number);
-    const latestDate=new Date(ly,lm,1); // first of month after latest
-    if(latestDate>dataMax) dataMax=latestDate;
+    const latestDate=new Date(latestKey+'T00:00:00');
+    latestDate.setDate(latestDate.getDate()+30); // add 30d buffer after last data
+    if(latestDate>rangeEnd) rangeEnd=latestDate;
   }
 
+  // Build months list from rangeStart to rangeEnd
   const months=[];
-  for(let d=new Date(minMonth); d<=dataMax; d.setMonth(d.getMonth()+1)){
+  for(let d=new Date(rangeStart.getFullYear(),rangeStart.getMonth(),1);
+      d<=rangeEnd; d.setMonth(d.getMonth()+1)){
     months.push(ym(new Date(d)));
   }
 
   const sf=document.getElementById('sf'), st2=document.getElementById('st');
   sf.innerHTML=st2.innerHTML=months.map(m=>`<option value="${m}">${fmtM(m)}</option>`).join('');
 
-  // Default view: today → today+3 months
-  const tYM=ym(today);
-  const fromM=months.find(m=>m>=tYM)||months[0];
-  const fromIdx=months.indexOf(fromM);
-  const toM=months[Math.min(fromIdx+2,months.length-1)];
-  sf.value=fromM; st2.value=toM;
+  // Default view: today-30d to today+90d
+  const startYM=ym(rangeStart);
+  const endYM=ym(rangeEnd);
+  sf.value=months.find(m=>m>=startYM)||months[0];
+  st2.value=months.find(m=>m>=endYM)||months[months.length-1];
 
   const se=document.getElementById('seq');
   se.innerHTML='<option value="">Todos</option>'+eqs.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
@@ -1436,7 +1446,21 @@ function buildRange(){
     planDates.push({date:new Date(d),key:dk(new Date(d))});
 }
 
-function ra(){ buildRange(); renderGantt(); if(view==='c') renderCol(); }
+function ra(){ buildRange(); renderGantt(); if(view==='c') renderCol(); else scrollToToday(); }
+
+function scrollToToday(){
+  const todK=dk(new Date());
+  const todTh=document.querySelector(`#gh th.tod`);
+  if(!todTh) return;
+  const gv=document.getElementById('gv');
+  if(!gv) return;
+  // Center today's column in the viewport
+  const thLeft=todTh.offsetLeft;
+  const thWidth=todTh.offsetWidth;
+  const gvWidth=gv.clientWidth;
+  const labelWidth=164; // row label width
+  gv.scrollLeft=Math.max(0, thLeft-labelWidth-(gvWidth-labelWidth)/2+thWidth/2);
+}
 
 // ════════════ GANTT RENDER ════════════
 // Build continuation chips (read-only, visual only — not draggable)
@@ -1506,7 +1530,8 @@ function renderGantt(){
     const isHol=holidays.has(key);
     const isSatEn=enabledSats.has(key);
     const isTriple=tripleShifts.has(key);
-    dH+=`<th class="${we?'we ':''} ${tot?'tod ':''} ${isHol?'th-holiday ':''} ${isSatEn?'th-sat-en ':''} ${isTriple?'th-triple ':''} drow-th" style="top:28px"><div class="thi"><span class="tdow">${dow}</span><span class="tday">${day}</span><span class="tmon">${mon}</span></div></th>`;
+    const isPast=key<todK;
+    dH+=`<th class="${we?'we ':''} ${tot?'tod ':''} ${isHol?'th-holiday ':''} ${isSatEn?'th-sat-en ':''} ${isTriple?'th-triple ':''} ${isPast?'th-past ':''} drow-th" style="top:28px"><div class="thi"><span class="tdow">${dow}</span><span class="tday">${day}</span><span class="tmon">${mon}</span></div></th>`;
   }
   head.innerHTML+=dH+'</tr>';
 
@@ -1560,6 +1585,7 @@ function renderGantt(){
       const isHolCell=holidays.has(key);
       const isSatEnCell=enabledSats.has(key) && we;
       const isTripleCell=tripleShifts.has(key) && (()=>{const ts=tripleShifts.get(key);return !ts.equipos||!ts.equipos.length||ts.equipos.includes(eq);})();
+      const isPastCell=key<todK;
       const entries=(grid[eq]&&grid[eq][key])||[];
       const conts=continuations[key]||[];
 
@@ -1575,7 +1601,7 @@ function renderGantt(){
       const loadLabel=cellLoad>0?Math.round(cellLoad*10)/10+'h':'';
 
       const canAdd=entries.length<5;
-      row+=`<td class="dc ${we?'we ':''} ${tot?'tod2 ':''}  ${isHolCell?'holiday ':''} ${isSatEnCell?'sat-enabled ':''}  ${isTripleCell?'triple-turno ':''}" 
+      row+=`<td class="dc ${we?'we ':''} ${tot?'tod2 ':''}  ${isHolCell?'holiday ':''} ${isSatEnCell?'sat-enabled ':''}  ${isTripleCell?'triple-turno ':''}  ${isPastCell?'past ':''}" 
         data-eq="${esc(eq)}" data-date="${key}"
       oncontextmenu="showCtxMenu(event,'${esc(eq)}','${key}',null)"
       ><div class="chips-wrap">${buildContChips(conts)}${buildChips(eq,key,entries,1)}</div>${canAdd?`<div class="add-chip-btn" onclick="openModal('${esc(eq)}','${key}',null)" title="Agregar proceso">+</div>`:''
