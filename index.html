@@ -405,6 +405,8 @@ body.light .soon-row td:first-child{background:rgba(196,122,10,.07)!important}
 .bl-chip.dragging{opacity:.3}
 .bl-chip.bl-dep-active{outline:2px solid var(--teal);outline-offset:2px;background:rgba(34,211,238,.08)!important}
 body.light .bl-chip.bl-dep-active{background:rgba(10,120,144,.06)!important}
+/* Backlog chip highlighted as dep target */
+.bl-chip.bl-dep-target{outline:2px solid var(--warn)!important;outline-offset:2px!important;background:rgba(245,158,11,.1)!important}
 /* Gantt chip highlighted as backlog dep target */
 .chip.bl-dep-target{outline:2px solid var(--teal)!important;outline-offset:2px!important;
   background:rgba(34,211,238,.1)!important;animation:blDepPulse 1.5s ease-in-out infinite}
@@ -2078,6 +2080,11 @@ function clearBlDepLines(){
     el.classList.remove('bl-dep-target');
     el.style.outline=''; el.style.outlineOffset='';
   });
+  // Remove highlighted backlog chips
+  document.querySelectorAll('.bl-chip.bl-dep-target').forEach(el=>{
+    el.classList.remove('bl-dep-target');
+    el.style.outline=''; el.style.outlineOffset='';
+  });
   // Remove floating dep list
   const old=document.getElementById('blDepList');
   if(old) old.remove();
@@ -2086,34 +2093,49 @@ function clearBlDepLines(){
 function drawBlDepLines(blIdx, srcEl){
   clearBlDepLines();
   const entry = backlog[blIdx];
-  console.log('[BL-DRAW] entry:', entry?.nombre, 'deps:', JSON.stringify(entry?.deps));
-  if(!entry||!entry.deps||!entry.deps.length){ console.log('[BL-DRAW] no deps'); return; }
+  if(!entry||!entry.deps||!entry.deps.length) return;
 
   const srcR = srcEl.getBoundingClientRect();
   const unscheduled = [];
+  let foundInGantt = 0;
 
   for(const dep of entry.deps){
     const loc = dep.targetId ? findEntryLocation(dep.targetId) : null;
-    console.log('[BL-DRAW] dep targetId:', dep.targetId, 'loc:', JSON.stringify(loc));
     if(loc){
       // Highlight the gantt chip
       const depEl = findChipEl(loc.equip, loc.date, loc.idx);
-      console.log('[BL-DRAW] depEl:', depEl);
       if(depEl){
+        foundInGantt++;
         depEl.classList.add('bl-dep-target');
         depEl.style.outline = '2px solid var(--teal)';
         depEl.style.outlineOffset = '2px';
-        // Scroll it into view gently
-        depEl.scrollIntoView({behavior:'smooth', block:'nearest', inline:'nearest'});
+        // Scroll to it
+        depEl.scrollIntoView({behavior:'smooth', block:'center', inline:'center'});
       }
     } else {
-      const depEntry = findEntryById(dep.targetId);
-      const inBl = depEntry && backlog.some(b=>b.id===dep.targetId);
+      // Not in grid — check backlog
+      const inBl = backlog.some(b=>b.id===dep.targetId);
+      const depEntry = findEntryById(dep.targetId) || backlog.find(b=>b.id===dep.targetId);
+      if(inBl){
+        // Also highlight it in the backlog panel
+        const blChips = document.querySelectorAll('.bl-chip');
+        const blIdx2 = backlog.findIndex(b=>b.id===dep.targetId);
+        if(blIdx2>=0 && blChips[blIdx2]){
+          blChips[blIdx2].style.outline = '2px solid var(--warn)';
+          blChips[blIdx2].style.outlineOffset = '2px';
+          blChips[blIdx2].classList.add('bl-dep-target');
+        }
+      }
       unscheduled.push({
-        name: depEntry ? depEntry.nombre : '(no encontrado)',
+        name: depEntry ? depEntry.nombre : '(ID: '+dep.targetId+')',
         inBl
       });
     }
+  }
+
+  // Toast for scheduled deps
+  if(foundInGantt > 0){
+    toast('🔗 '+foundInGantt+' dependencia'+(foundInGantt>1?'s resaltadas':' resaltada')+' en el Gantt');
   }
 
   // Show floating list of unscheduled deps near the source chip
