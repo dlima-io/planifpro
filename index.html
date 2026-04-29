@@ -805,7 +805,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
         </div>
         <div class="leg-row">
           <div class="leg-icon-demo" style="color:var(--teal)">🔗</div>
-          <div><div class="leg-label">Dependencias</div><div class="leg-desc">El proceso depende de uno o más procesos anteriores</div></div>
+          <div><div class="leg-label">Dependencias</div><div class="leg-desc">El proceso depende de uno o más procesos. Clic en el chip: línea <span style="color:var(--teal)">teal</span> = depende de, línea <span style="color:#fb923c">naranja</span> = otros dependen de este</div></div>
         </div>
         <div class="leg-row">
           <div class="leg-icon-demo" style="color:var(--text3);font-family:var(--mono);font-size:10px">📅3d</div>
@@ -1674,47 +1674,81 @@ function chipClick(e,eq,date,idx){
   drawDepLines(eq,date,idx);
 }
 
+// Build reverse-dep index: id → [{equip,date,idx,entry}] of entries that depend on id
+function buildRevDeps(targetId){
+  const rev=[];
+  for(const eq of eqs){
+    for(const [date,entries] of Object.entries(grid[eq]||{})){
+      entries.forEach((e,i)=>{
+        if(e.deps&&e.deps.some(d=>d.targetId===targetId))
+          rev.push({equip:eq,date,idx:i,entry:e});
+      });
+    }
+  }
+  // Also check backlog
+  backlog.forEach((e,i)=>{
+    if(e.deps&&e.deps.some(d=>d.targetId===targetId))
+      rev.push({equip:null,date:null,idx:i,entry:e,inBacklog:true});
+  });
+  return rev;
+}
+
+function drawArrow(ctx,x1,y1,x2,y2,color){
+  const al=10;
+  ctx.strokeStyle=color; ctx.setLineDash([5,4]); ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  // Arrow head at (x2,y2)
+  const angle=Math.atan2(y1-y2,x1-x2);
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2+al*Math.cos(angle-0.4),y2+al*Math.sin(angle-0.4));
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2+al*Math.cos(angle+0.4),y2+al*Math.sin(angle+0.4));
+  ctx.stroke();
+  ctx.setLineDash([5,4]);
+}
+
 function drawDepLines(eq,date,idx){
   const canvas=document.getElementById('depCanvas');
   const gv=document.getElementById('gv');
   const entry=grid[eq]&&grid[eq][date]&&grid[eq][date][idx];
-  if(!entry||!entry.deps||!entry.deps.length){ clearDepLines(); return; }
+  if(!entry){ clearDepLines(); return; }
 
   canvas.width=gv.scrollWidth; canvas.height=gv.scrollHeight;
   canvas.style.width=gv.scrollWidth+'px'; canvas.style.height=gv.scrollHeight+'px';
   const ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  // Find source chip element
   const srcEl=findChipEl(eq,date,idx); if(!srcEl) return;
   const srcR=srcEl.getBoundingClientRect(), gvR=gv.getBoundingClientRect();
   const sx=srcR.left-gvR.left+gv.scrollLeft+srcR.width/2;
   const sy=srcR.top-gvR.top+gv.scrollTop+srcR.height/2;
 
-  ctx.strokeStyle='rgba(34,211,238,0.7)';
-  ctx.lineWidth=2;
-  ctx.setLineDash([5,4]);
+  // ── Teal: lines TO dependencies (this entry depends on them) ──
+  if(entry.deps&&entry.deps.length){
+    for(const dep of entry.deps){
+      const loc=dep.targetId?findEntryLocation(dep.targetId):dep;
+      if(!loc) continue;
+      const depEl=findChipEl(loc.equip,loc.date,loc.idx); if(!depEl) continue;
+      const dr=depEl.getBoundingClientRect();
+      const dx=dr.left-gvR.left+gv.scrollLeft+dr.width/2;
+      const dy=dr.top-gvR.top+gv.scrollTop+dr.height/2;
+      drawArrow(ctx,sx,sy,dx,dy,'rgba(34,211,238,0.8)');
+    }
+  }
 
-  for(const dep of entry.deps){
-    // Resolve current location by targetId (stable across moves)
-    const loc=dep.targetId?findEntryLocation(dep.targetId):dep;
-    if(!loc) continue;
-    const depEl=findChipEl(loc.equip,loc.date,loc.idx); if(!depEl) continue;
-    const dr=depEl.getBoundingClientRect();
-    const dx=dr.left-gvR.left+gv.scrollLeft+dr.width/2;
-    const dy=dr.top-gvR.top+gv.scrollTop+dr.height/2;
-    ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(dx,dy); ctx.stroke();
-    // Arrow
-    const angle=Math.atan2(sy-dy,sx-dx);
-    const al=10;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(sx,sy);
-    ctx.lineTo(sx-al*Math.cos(angle-0.4),sy-al*Math.sin(angle-0.4));
-    ctx.moveTo(sx,sy);
-    ctx.lineTo(sx-al*Math.cos(angle+0.4),sy-al*Math.sin(angle+0.4));
-    ctx.stroke();
-    ctx.setLineDash([5,4]);
+  // ── Orange: lines FROM entries that depend on this one ──
+  if(entry.id){
+    const revDeps=buildRevDeps(entry.id);
+    for(const rev of revDeps){
+      if(rev.inBacklog) continue; // backlog chips not on canvas
+      const revEl=findChipEl(rev.equip,rev.date,rev.idx); if(!revEl) continue;
+      const rr=revEl.getBoundingClientRect();
+      const rx=rr.left-gvR.left+gv.scrollLeft+rr.width/2;
+      const ry=rr.top-gvR.top+gv.scrollTop+rr.height/2;
+      drawArrow(ctx,rx,ry,sx,sy,'rgba(251,146,60,0.8)');
+    }
   }
 }
 
@@ -2133,7 +2167,33 @@ function drawBlDepLines(blIdx, srcEl){
     }
   }
 
-  // Toast for scheduled deps
+  // ── Orange: highlight entries that depend on THIS backlog entry ──
+  if(entry.id){
+    const revDeps = buildRevDeps(entry.id);
+    for(const rev of revDeps){
+      if(rev.inBacklog){
+        // Another backlog chip depends on this one
+        const blChips2=document.querySelectorAll('.bl-chip');
+        if(blChips2[rev.idx]){
+          blChips2[rev.idx].style.outline='2px solid rgba(251,146,60,0.8)';
+          blChips2[rev.idx].style.outlineOffset='2px';
+          blChips2[rev.idx].classList.add('bl-dep-target');
+        }
+      } else {
+        // A grid chip depends on this backlog entry
+        const revEl=findChipEl(rev.equip,rev.date,rev.idx);
+        if(revEl){
+          revEl.style.outline='2px solid rgba(251,146,60,0.8)';
+          revEl.style.outlineOffset='2px';
+          revEl.classList.add('bl-dep-target');
+        }
+      }
+    }
+    if(revDeps.length>0)
+      foundInGantt+=revDeps.filter(r=>!r.inBacklog).length;
+  }
+
+  // Toast summary
   if(foundInGantt > 0){
     toast('🔗 '+foundInGantt+' dependencia'+(foundInGantt>1?'s resaltadas':' resaltada')+' en el Gantt');
   }
