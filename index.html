@@ -405,6 +405,11 @@ body.light .soon-row td:first-child{background:rgba(196,122,10,.07)!important}
 .bl-chip.dragging{opacity:.3}
 .bl-chip.bl-dep-active{outline:2px solid var(--teal);outline-offset:2px;background:rgba(34,211,238,.08)!important}
 body.light .bl-chip.bl-dep-active{background:rgba(10,120,144,.06)!important}
+/* Gantt chip highlighted as backlog dep target */
+.chip.bl-dep-target{outline:2px solid var(--teal)!important;outline-offset:2px!important;
+  background:rgba(34,211,238,.1)!important;animation:blDepPulse 1.5s ease-in-out infinite}
+@keyframes blDepPulse{0%,100%{outline-color:var(--teal)}50%{outline-color:rgba(34,211,238,.3)}}
+body.light .bl-chip.bl-dep-active{background:rgba(10,120,144,.06)!important}
 .bl-chip-name{font-size:10px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 .bl-chip-meta{font-size:9px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 body.light .bl-chip{background:#fdfaf7;color:#2c2218;border-color:#d0c5b8;border-left-color:var(--purple)}
@@ -1577,7 +1582,10 @@ function renderGantt(){
     bH+=row+'</tr>';
   }
   body.innerHTML=bH;
-  clearDepLines(); clearBlDepLines();
+  clearDepLines();
+  // Clear floating dep list (gantt chips are rebuilt so their highlights are gone too)
+  const oldBL=document.getElementById('blDepList'); if(oldBL) oldBL.remove();
+  if(blDepHi){ blDepHi=null; document.querySelectorAll('.bl-chip.bl-dep-active').forEach(el=>el.classList.remove('bl-dep-active')); }
 }
 
 function buildChips(eq,key,entries){
@@ -1711,7 +1719,8 @@ function drawDepLines(eq,date,idx){
 function findChipEl(eq,date,idx){
   const td=document.querySelector(`td.dc[data-eq="${CSS.escape(eq)}"][data-date="${date}"]`);
   if(!td) return null;
-  const chips=td.querySelectorAll('.chip');
+  // Skip continuation chips — only count owned chips
+  const chips=[...td.querySelectorAll('.chip')].filter(el=>!el.classList.contains('chip-cont'));
   return chips[idx]||null;
 }
 
@@ -2064,89 +2073,64 @@ function blChipClick(blIdx, chipEl){
 }
 
 function clearBlDepLines(){
-  const canvas = document.getElementById('blDepCanvas');
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  canvas.classList.remove('active');
+  // Remove highlighted gantt chips
+  document.querySelectorAll('.chip.bl-dep-target').forEach(el=>{
+    el.classList.remove('bl-dep-target');
+    el.style.outline=''; el.style.outlineOffset='';
+  });
+  // Remove floating dep list
+  const old=document.getElementById('blDepList');
+  if(old) old.remove();
 }
 
 function drawBlDepLines(blIdx, srcEl){
+  clearBlDepLines();
   const entry = backlog[blIdx];
-  if(!entry) return;
+  console.log('[BL-DRAW] entry:', entry?.nombre, 'deps:', JSON.stringify(entry?.deps));
+  if(!entry||!entry.deps||!entry.deps.length){ console.log('[BL-DRAW] no deps'); return; }
 
-  const canvas = document.getElementById('blDepCanvas');
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  canvas.classList.add('active');
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-
-  if(!entry.deps||!entry.deps.length) return;
-
-  // Source: center of the backlog chip
   const srcR = srcEl.getBoundingClientRect();
-  const sx = srcR.left + srcR.width/2;
-  const sy = srcR.top + srcR.height/2;
+  const unscheduled = [];
 
   for(const dep of entry.deps){
-    const depEntry = findEntryById(dep.targetId);
     const loc = dep.targetId ? findEntryLocation(dep.targetId) : null;
-
+    console.log('[BL-DRAW] dep targetId:', dep.targetId, 'loc:', JSON.stringify(loc));
     if(loc){
-      // Dep IS in Gantt — draw line to that chip
+      // Highlight the gantt chip
       const depEl = findChipEl(loc.equip, loc.date, loc.idx);
+      console.log('[BL-DRAW] depEl:', depEl);
       if(depEl){
-        const dr = depEl.getBoundingClientRect();
-        const dx = dr.left + dr.width/2;
-        const dy = dr.top + dr.height/2;
-
-        // Line: backlog chip → gantt chip (teal)
-        ctx.strokeStyle = 'rgba(34,211,238,0.8)';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5,4]);
-        ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(dx,dy); ctx.stroke();
-        // Arrow at gantt chip end
-        const angle = Math.atan2(sy-dy, sx-dx);
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(dx,dy);
-        ctx.lineTo(dx+10*Math.cos(angle-0.4), dy+10*Math.sin(angle-0.4));
-        ctx.moveTo(dx,dy);
-        ctx.lineTo(dx+10*Math.cos(angle+0.4), dy+10*Math.sin(angle+0.4));
-        ctx.stroke();
-        ctx.setLineDash([5,4]);
+        depEl.classList.add('bl-dep-target');
+        depEl.style.outline = '2px solid var(--teal)';
+        depEl.style.outlineOffset = '2px';
+        // Scroll it into view gently
+        depEl.scrollIntoView({behavior:'smooth', block:'nearest', inline:'nearest'});
       }
     } else {
-      // Dep NOT in Gantt — draw line to a label on the right side
-      // Show floating label near source indicating the dep name + status
-      const depName = depEntry ? depEntry.nombre : (dep.targetId||'?');
-      const inBacklog = depEntry && backlog.some(b=>b.id===dep.targetId);
-      const label = (inBacklog ? '📦 ' : '✗ ') + depName.slice(0,30);
-      const color = inBacklog ? 'rgba(245,158,11,0.9)' : 'rgba(239,68,68,0.9)';
-
-      // Draw dashed line to a floating bubble to the left of source
-      const ex = srcR.left - 20;
-      const ey = sy - 20 * (entry.deps.indexOf(dep));
-
-      ctx.strokeStyle = color.replace('0.9','0.6');
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4,4]);
-      ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey); ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Label bubble
-      ctx.font = '11px system-ui, sans-serif';
-      const tw = ctx.measureText(label).width;
-      const bx = ex - tw - 16, by = ey - 10, bw = tw+16, bh = 20;
-      // Clamp to screen
-      const bxC = Math.max(4, bx);
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.roundRect(bxC, by, bw, bh, 4);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.fillText(label, bxC+8, ey+4);
+      const depEntry = findEntryById(dep.targetId);
+      const inBl = depEntry && backlog.some(b=>b.id===dep.targetId);
+      unscheduled.push({
+        name: depEntry ? depEntry.nombre : '(no encontrado)',
+        inBl
+      });
     }
+  }
+
+  // Show floating list of unscheduled deps near the source chip
+  if(unscheduled.length){
+    const listEl = document.createElement('div');
+    listEl.id = 'blDepList';
+    listEl.style.cssText = `position:fixed;z-index:200;background:var(--surf2);
+      border:1px solid var(--border2);border-radius:7px;padding:8px 12px;
+      font-size:11px;box-shadow:0 4px 16px rgba(0,0,0,.4);max-width:260px;
+      left:${Math.max(4, srcR.left - 270)}px;
+      top:${srcR.top}px;`;
+    listEl.innerHTML = '<div style="font-size:10px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em">Dependencias sin programar</div>' +
+      unscheduled.map(d=>`<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
+        <span style="color:${d.inBl?'var(--warn)':'var(--red)'}">${d.inBl?'📦':'✗'}</span>
+        <span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name)}</span>
+      </div>`).join('');
+    document.body.appendChild(listEl);
   }
 }
 
@@ -4474,8 +4458,8 @@ document.getElementById('ep').addEventListener('click',e=>{if(e.target===documen
 document.addEventListener('click',e=>{
   if(!e.target.closest('.acw')) acHide();
   if(!e.target.closest('#ctxMenu')) hideCtxMenu();
-  // Clear backlog dep lines when clicking outside backlog panel
-  if(!e.target.closest('#backlogPanel') && blDepHi){
+  // Clear backlog dep lines when clicking outside backlog panel and dep list
+  if(!e.target.closest('#backlogPanel') && !e.target.closest('#blDepList') && blDepHi){
     blDepHi=null;
     clearBlDepLines();
     document.querySelectorAll('.bl-chip.bl-dep-active').forEach(el=>el.classList.remove('bl-dep-active'));
