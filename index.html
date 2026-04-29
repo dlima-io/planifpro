@@ -2007,8 +2007,7 @@ function renderBacklog(){
       <div class="bl-chip-meta">${[entry.lote,entry.cantidad?(entry.cantidad+(entry.unidad?' '+entry.unidad:'')):'',entry.horas?entry.horas+'h':'',entry.fechaLimite?'📅'+entry.fechaLimite:'',entry.deps&&entry.deps.length?'🔗'+entry.deps.length:''].filter(Boolean).join(' · ')}</div>`;
     // Double click to edit
     div.addEventListener('dblclick', ()=>openBacklogEdit(i));
-    // Single click to show dep lines
-    div.addEventListener('click', ()=>blChipClick(i, div));
+    // Note: single click handled inside blDragStart (after mouseup with no drag)
     // Right click — context menu for backlog
     div.addEventListener('contextmenu', e=>{ e.preventDefault(); e.stopPropagation(); showBlCtxMenu(e,i); });
     // Drag
@@ -2204,7 +2203,11 @@ function blDragStart(e){
     div.classList.remove('dragging');
     if(overTd) overTd.classList.remove('dov');
     document.querySelectorAll('.chip.dep-link-hover').forEach(el=>el.classList.remove('dep-link-hover'));
-    if(!dragStarted){ blDrag=null; return; }
+    if(!dragStarted){
+      // No drag = single click → show dep lines
+      blChipClick(idx, div);
+      blDrag=null; return;
+    }
     // Find drop target
     ghostEl=null;
     const el=document.elementFromPoint(ev.clientX,ev.clientY);
