@@ -4212,26 +4212,24 @@ function propagateDeadlinesComplete(srcEntry, srcDate){
   const visited = new Set();
   // Phase 1: propagate normally
   propagateDeadlines(srcEntry, srcDate, visited);
-  // Phase 2: for each visited entry, also find dependents that might point
-  // to other instances of the same codigo (different lote/fecha)
+  // Phase 2: find dependents by codigo for all visited entries
   const allVisited = [...visited];
   for(const visitedId of allVisited){
-    const visitedEntry = findEntryById(visitedId);
-    if(!visitedEntry) continue;
-    // Find any entry whose deps contain a targetId that resolves to 
-    // an entry with the same codigo as visitedEntry
+    // findEntryById searches grid only — also check backlog
+    const visitedEntry = findEntryById(visitedId) || backlog.find(b=>b.id===visitedId);
+    if(!visitedEntry || !visitedEntry.codigo) continue;
     const extraDeps = findDependentsByCodigo(visitedEntry.codigo, visited);
     for(const dep of extraDeps){
       if(visited.has(dep.entry.id)) continue;
       const days = deadlineDaysForCodigo(dep.entry.codigo);
       if(days !== null){
         const newLimit = addCalDays(srcDate, days);
-        if(dep.entry.fechaLimite !== newLimit){
-          dep.entry.fechaLimite = newLimit;
-          log('FECHA LÍMITE AUTO (by codigo)',
-            `"${dep.entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(srcDate)})`);
-        }
+        dep.entry.fechaLimite = newLimit;
+        visited.add(dep.entry.id); // mark as processed
+        log('FECHA LÍMITE AUTO',
+          `"${dep.entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(srcDate)})`);
       }
+      // Keep recursing from this dep to catch further downstream entries
       propagateDeadlines(dep.entry, srcDate, visited);
     }
   }
@@ -4293,14 +4291,7 @@ function recalcAllDeadlines(){
     for(const [date, entries] of Object.entries(grid[eq]||{})){
       for(const entry of entries){
         if(isPrimeraEtapa(entry)){
-          if(entry.nombre.includes('NEBIBLOC')||entry.nombre.includes('400038')||entry.codigo==='400038'){
-            console.log('[NEB] primera etapa:', entry.nombre, entry.id, 'date:', date);
-            const d1 = findAllDependents(entry.id);
-            console.log('[NEB] direct dependents by ID:', d1.map(d=>d.entry.nombre+'/'+d.entry.codigo+'/'+d.entry.id));
-            const d2 = findDependentsByCodigo(entry.codigo, new Set());
-            console.log('[NEB] dependents by codigo:', d2.map(d=>d.entry.nombre+'/'+d.entry.codigo));
-          }
-          propagateDeadlinesComplete(entry, date);
+            propagateDeadlinesComplete(entry, date);
           count++;
         }
       }
