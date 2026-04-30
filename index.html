@@ -3663,7 +3663,11 @@ function dd(d){return{dow:['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][d.getDay
 function stLabel(s){return{p:'Pendiente',e:'Emitida',a:'Asignada',pr:'Producción',an:'En análisis',t:'Terminada',li:'Limpieza',m:'Mant.',s:'SPA'}[s]||s;}
 function stBadge(s){return{p:'bp2',e:'be2',a:'ba2',pr:'bpr2',an:'ban2',t:'bt2',li:'bx2',m:'bx2',s:'bx2'}[s]||'bx2';}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
-function markChg(){hasChg=true;updBadge();gScheduleSave();}
+function markChg(){
+  hasChg=true; updBadge(); gScheduleSave();
+  const dlEl=document.getElementById('dlPanel');
+  if(dlEl&&dlEl.classList.contains('open')) renderDlSection();
+}
 // ════════════ CALENDAR ════════════
 function openCalPanel(){
   renderCalList();
@@ -4005,11 +4009,11 @@ function renderDlSection(){
         for(const e of (entries||[])){
           if(!e.fechaLimite) continue;
           const lim=new Date(e.fechaLimite+'T00:00:00');
-          if(lim>cutoff) continue; // too far
-          const refDate=new Date(date+'T00:00:00');
-          const daysToLim=Math.round((lim-refDate)/86400000);
-          const isOv=lim<refDate;
+          if(isNaN(lim)) continue; // invalid date
           const daysFromToday=Math.round((lim-today)/86400000);
+          const isOv=lim<today; // overdue = limit passed today
+          if(!isOv && lim>cutoff) continue; // not overdue and too far away
+          const daysToLim=Math.round((lim-today)/86400000);
           items.push({e,eq,date,lim,daysToLim,isOv,daysFromToday});
         }
       }
@@ -4026,7 +4030,7 @@ function renderDlSection(){
     el.innerHTML=items.map(({e,eq,date,lim,daysToLim,isOv,daysFromToday})=>{
       const cls=isOv?'ov':'soon';
       const badge=isOv
-        ?`${Math.abs(daysToLim)}d excedido`
+        ?`${Math.abs(daysFromToday)}d excedido`
         :`${daysFromToday}d restantes`;
       const hasDeps=e.deps&&e.deps.length>0;
       const eIdx=(grid[eq]?.[date]||[]).indexOf(e);
@@ -4052,9 +4056,10 @@ function renderDlSection(){
     for(const e of backlog){
       if(!e.fechaLimite) continue;
       const lim=new Date(e.fechaLimite+'T00:00:00');
-      if(lim>cutoff) continue;
+      if(isNaN(lim)) continue;
       const daysFromToday=Math.round((lim-today)/86400000);
       const isOv=lim<today;
+      if(!isOv && lim>cutoff) continue;
       items.push({e,lim,daysFromToday,isOv});
     }
     items.sort((a,b)=>{
