@@ -4211,19 +4211,16 @@ function findPrimeraEtapa(entry, visited){
 // NEW APPROACH: for each entry, walk UP to find primera etapa, then assign deadline
 function recalcDeadlineForEntry(entry){
   const days = deadlineDaysForCodigo(entry.codigo);
-  if(days === null) return false; // this entry type doesn't get a deadline
+  if(days === null) return false;
 
   const primera = findPrimeraEtapa(entry, new Set());
-  if(!primera) return false; // can't find primera etapa or it's not scheduled
+  console.log('[DL]', entry.nombre, '| codigo:', entry.codigo, '| days:', days, '| primera:', primera ? primera.entry.nombre+' @ '+primera.date : 'NOT FOUND');
+  if(!primera) return false;
 
   const newLimit = addCalDays(primera.date, days);
-  if(entry.fechaLimite !== newLimit){
-    entry.fechaLimite = newLimit;
-    log('FECHA LÍMITE AUTO',
-      `"${entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(primera.date)})`);
-    return true;
-  }
-  return false;
+  entry.fechaLimite = newLimit;
+  log('FECHA LÍMITE AUTO', `"${entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(primera.date)})`);
+  return true;
 }
 
 // Kept for compatibility with checkAndPropagateDeadline
