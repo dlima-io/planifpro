@@ -4293,6 +4293,13 @@ function recalcAllDeadlines(){
     for(const [date, entries] of Object.entries(grid[eq]||{})){
       for(const entry of entries){
         if(isPrimeraEtapa(entry)){
+          if(entry.nombre.includes('NEBIBLOC')||entry.nombre.includes('400038')||entry.codigo==='400038'){
+            console.log('[NEB] primera etapa:', entry.nombre, entry.id, 'date:', date);
+            const d1 = findAllDependents(entry.id);
+            console.log('[NEB] direct dependents by ID:', d1.map(d=>d.entry.nombre+'/'+d.entry.codigo+'/'+d.entry.id));
+            const d2 = findDependentsByCodigo(entry.codigo, new Set());
+            console.log('[NEB] dependents by codigo:', d2.map(d=>d.entry.nombre+'/'+d.entry.codigo));
+          }
           propagateDeadlinesComplete(entry, date);
           count++;
         }
