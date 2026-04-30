@@ -4566,12 +4566,21 @@ async function gReloadFromSheet(){
     for(const {entry,depsStr} of rawDeps){
       const ids=depsStr.split(';').map(s=>s.trim()).filter(Boolean);
       for(const targetId of ids){
+        if(!targetId) continue;
         const loc=findEntryLocationInGrid(ng,targetId);
         if(loc){ entry.deps.push({...loc,targetId}); continue; }
+        // Check in newly loaded backlog rows
+        const inNewBl=newBacklog.find(b=>b.id===targetId);
+        if(inNewBl){ entry.deps.push({equip:null,date:null,idx:null,targetId}); continue; }
+        // Check in existing backlog
         const inBl=backlog.find(b=>b.id===targetId);
         if(inBl){ entry.deps.push({equip:null,date:null,idx:null,targetId}); continue; }
-        const byName=findEntryByName(targetId,ng,[...backlog]);
-        if(byName) entry.deps.push({...byName.loc,targetId:byName.entry.id});
+        // Try name match
+        const byName=findEntryByName(targetId,ng,[...newBacklog,...backlog]);
+        if(byName){ entry.deps.push({...byName.loc,targetId:byName.entry.id}); continue; }
+        // Store anyway — targetId might refer to an entry not yet in memory
+        // This preserves the dep chain for deadline calculation
+        entry.deps.push({equip:null,date:null,idx:null,targetId});
       }
     }
 
