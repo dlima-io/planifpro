@@ -4181,89 +4181,54 @@ function addCalDays(dateStr, days){
 // Propagate deadline from a primera etapa to its entire dep chain
 // srcDate: the scheduled date of the primera etapa
 // visited: Set of entry IDs already processed (avoid cycles)
-function propagateDeadlines(srcEntry, srcDate, visited){
-  if(!srcEntry || !srcEntry.id) return;
+// Walk UP the dep chain to find the primera etapa and its scheduled date
+// Returns {entry, date} or null
+function findPrimeraEtapa(entry, visited){
+  if(!entry) return null;
   visited = visited || new Set();
-  if(visited.has(srcEntry.id)) return;
-  visited.add(srcEntry.id);
+  if(visited.has(entry.id)) return null; // cycle guard
+  visited.add(entry.id);
 
-  // Find all entries that depend on srcEntry (direct dependents)
-  const dependents = findAllDependents(srcEntry.id);
-
-  for(const dep of dependents){
-    if(visited.has(dep.entry.id)) continue;
-    const days = deadlineDaysForCodigo(dep.entry.codigo);
-    if(days !== null){
-      const newLimit = addCalDays(srcDate, days);
-      if(dep.entry.fechaLimite !== newLimit){
-        dep.entry.fechaLimite = newLimit;
-        log('FECHA LÍMITE AUTO',
-          `"${dep.entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(srcDate)})`);
-      }
-    }
-    // Recurse into this dependent's dependents (passing original srcDate)
-    propagateDeadlines(dep.entry, srcDate, visited);
+  // If this entry IS the primera etapa, find its scheduled date
+  if(isPrimeraEtapa(entry)){
+    // Find date in grid
+    const loc = findEntryLocation(entry.id);
+    if(loc) return {entry, date: loc.date};
+    return null; // primera etapa not scheduled → no date to propagate
   }
+
+  // Walk up through deps
+  if(!entry.deps || !entry.deps.length) return null;
+  for(const dep of entry.deps){
+    const depEntry = findEntryById(dep.targetId) || backlog.find(b=>b.id===dep.targetId);
+    if(!depEntry) continue;
+    const result = findPrimeraEtapa(depEntry, visited);
+    if(result) return result;
+  }
+  return null;
 }
 
-// Wrapper that also propagates through same-codigo chain
-// (handles cases where multiple entries share the same codigo across dates)
+// NEW APPROACH: for each entry, walk UP to find primera etapa, then assign deadline
+function recalcDeadlineForEntry(entry){
+  const days = deadlineDaysForCodigo(entry.codigo);
+  if(days === null) return false; // this entry type doesn't get a deadline
+
+  const primera = findPrimeraEtapa(entry, new Set());
+  if(!primera) return false; // can't find primera etapa or it's not scheduled
+
+  const newLimit = addCalDays(primera.date, days);
+  if(entry.fechaLimite !== newLimit){
+    entry.fechaLimite = newLimit;
+    log('FECHA LÍMITE AUTO',
+      `"${entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(primera.date)})`);
+    return true;
+  }
+  return false;
+}
+
+// Kept for compatibility with checkAndPropagateDeadline
 function propagateDeadlinesComplete(srcEntry, srcDate){
-  const visited = new Set();
-  // Phase 1: propagate normally
-  propagateDeadlines(srcEntry, srcDate, visited);
-  // Phase 2: find dependents by codigo for all visited entries
-  const allVisited = [...visited];
-  for(const visitedId of allVisited){
-    // findEntryById searches grid only — also check backlog
-    const visitedEntry = findEntryById(visitedId) || backlog.find(b=>b.id===visitedId);
-    if(!visitedEntry || !visitedEntry.codigo) continue;
-    const extraDeps = findDependentsByCodigo(visitedEntry.codigo, visited);
-    for(const dep of extraDeps){
-      if(visited.has(dep.entry.id)) continue;
-      const days = deadlineDaysForCodigo(dep.entry.codigo);
-      if(days !== null){
-        const newLimit = addCalDays(srcDate, days);
-        dep.entry.fechaLimite = newLimit;
-        visited.add(dep.entry.id); // mark as processed
-        log('FECHA LÍMITE AUTO',
-          `"${dep.entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(srcDate)})`);
-      }
-      // Keep recursing from this dep to catch further downstream entries
-      propagateDeadlines(dep.entry, srcDate, visited);
-    }
-  }
-}
-
-// Find entries that depend on ANY entry with a given codigo
-function findDependentsByCodigo(codigo, excludeIds){
-  // Get all entry IDs that have this codigo
-  const codigoIds = new Set();
-  for(const eq of eqs){
-    for(const entries of Object.values(grid[eq]||{})){
-      for(const e of entries) if(e.codigo===codigo) codigoIds.add(e.id);
-    }
-  }
-  for(const e of backlog) if(e.codigo===codigo) codigoIds.add(e.id);
-
-  // Find entries whose deps point to any of those IDs
-  const result = [];
-  const check = (e, extra={}) => {
-    if(!e.deps) return;
-    for(const d of e.deps){
-      if(codigoIds.has(d.targetId) && !excludeIds.has(e.id)){
-        result.push({entry:e, ...extra});
-        break;
-      }
-    }
-  };
-  for(const eq of eqs){
-    for(const [date,entries] of Object.entries(grid[eq]||{})){
-      entries.forEach((e,i)=>check(e,{equip:eq,date,idx:i}));
-    }
-  }
-  backlog.forEach((e,i)=>check(e,{inBacklog:true,idx:i}));
-  return result;
+  // No-op: recalcAllDeadlines now uses the bottom-up approach
 }
 
 // Find all entries (grid + backlog) that have a dep pointing to targetId
@@ -4309,10 +4274,8 @@ function recalcAllDeadlines(){
 function checkAndPropagateDeadline(entry, date){
   if(!entry || !date) return;
   if(!isPrimeraEtapa(entry)) return;
-  // This is a primera etapa — propagate to all dependents (grid AND backlog)
-  propagateDeadlinesComplete(entry, date);
-  // Re-render backlog chips to show updated deadline icons
-  if(typeof renderBacklog === 'function') renderBacklog();
+  // Recalculate deadlines for the whole plan (bottom-up)
+  recalcAllDeadlines();
 }
 
 // ════════════ GOOGLE DRIVE / SHEETS ════════════
