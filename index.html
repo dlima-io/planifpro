@@ -4226,16 +4226,22 @@ function findAllDependents(targetId){
 // Scan ALL primera etapas in grid and propagate deadlines
 function recalcAllDeadlines(){
   let count = 0;
+  console.log('[RECALC] eqs:', eqs);
   for(const eq of eqs){
     for(const [date, entries] of Object.entries(grid[eq]||{})){
       for(const entry of entries){
-        if(isPrimeraEtapa(entry)){
+        const isP = isPrimeraEtapa(entry);
+        console.log('[RECALC] entry:', entry.nombre, 'codigo:', entry.codigo, 'deps:', entry.deps?.length, 'isPrimera:', isP);
+        if(isP){
+          const dependents = findAllDependents(entry.id);
+          console.log('[RECALC] dependents found:', dependents.length, dependents.map(d=>d.entry.nombre+'/'+d.entry.codigo));
           propagateDeadlines(entry, date, new Set());
           count++;
         }
       }
     }
   }
+  console.log('[RECALC] total primera etapas:', count);
   renderGantt();
   renderBacklog();
   markChg();
