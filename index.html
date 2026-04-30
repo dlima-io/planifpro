@@ -4183,52 +4183,8 @@ function addCalDays(dateStr, days){
 // visited: Set of entry IDs already processed (avoid cycles)
 // Walk UP the dep chain to find the primera etapa and its scheduled date
 // Returns {entry, date} or null
-function findPrimeraEtapa(entry, visited){
-  if(!entry) return null;
-  visited = visited || new Set();
-  if(visited.has(entry.id)) return null; // cycle guard
-  visited.add(entry.id);
 
-  // If this entry IS the primera etapa, find its scheduled date
-  if(isPrimeraEtapa(entry)){
-    // Find date in grid
-    const loc = findEntryLocation(entry.id);
-    if(loc) return {entry, date: loc.date};
-    return null; // primera etapa not scheduled → no date to propagate
-  }
 
-  // Walk up through deps
-  if(!entry.deps || !entry.deps.length) return null;
-  for(const dep of entry.deps){
-    const depEntry = findEntryById(dep.targetId) || backlog.find(b=>b.id===dep.targetId);
-    if(!depEntry) continue;
-    const result = findPrimeraEtapa(depEntry, visited);
-    if(result) return result;
-  }
-  return null;
-}
-
-// NEW APPROACH: for each entry, walk UP to find primera etapa, then assign deadline
-function recalcDeadlineForEntry(entry){
-  const days = deadlineDaysForCodigo(entry.codigo);
-  if(days === null) return false;
-
-  const primera = findPrimeraEtapa(entry, new Set());
-  console.log('[DL]', entry.nombre, '| codigo:', entry.codigo, '| days:', days, '| primera:', primera ? primera.entry.nombre+' @ '+primera.date : 'NOT FOUND');
-  if(!primera) return false;
-
-  const newLimit = addCalDays(primera.date, days);
-  entry.fechaLimite = newLimit;
-  log('FECHA LÍMITE AUTO', `"${entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(primera.date)})`);
-  return true;
-}
-
-// Kept for compatibility with checkAndPropagateDeadline
-function propagateDeadlinesComplete(srcEntry, srcDate){
-  // No-op: recalcAllDeadlines now uses the bottom-up approach
-}
-
-// Find all entries (grid + backlog) that have a dep pointing to targetId
 function findAllDependents(targetId){
   const result = [];
   for(const eq of eqs){
@@ -4247,32 +4203,73 @@ function findAllDependents(targetId){
 }
 
 // Scan ALL primera etapas in grid and propagate deadlines
-function recalcAllDeadlines(){
-  let count = 0;
+// ── DEADLINE CALCULATION (flat map approach) ────────────────────
+function buildEntryMap(){
+  const map={};
   for(const eq of eqs){
-    for(const [date, entries] of Object.entries(grid[eq]||{})){
-      for(const entry of entries){
-        if(isPrimeraEtapa(entry)){
-            propagateDeadlinesComplete(entry, date);
-          count++;
-        }
+    for(const [date,entries] of Object.entries(grid[eq]||{})){
+      for(const e of entries){
+        if(!e.id) continue;
+        map[e.id]={id:e.id,codigo:e.codigo||'',fecha:date,nombre:e.nombre,
+          deps:(e.deps||[]).map(d=>d.targetId).filter(Boolean),_entry:e};
       }
     }
   }
-  renderGantt();
-  renderBacklog();
-  markChg();
-  toast(`✓ Fechas límite recalculadas (${count} primera${count!==1?'s':''} etapa${count!==1?'s':''})`);
-  log('RECALC FECHAS LÍMITE', `${count} primera etapas procesadas`);
+  for(const e of backlog){
+    if(!e.id) continue;
+    map[e.id]={id:e.id,codigo:e.codigo||'',fecha:null,nombre:e.nombre,
+      deps:(e.deps||[]).map(d=>d.targetId).filter(Boolean),_entry:e};
+  }
+  return map;
 }
+
+function findPrimeraEtapaInMap(id,map,visited){
+  if(!id||!map[id]) return null;
+  if(visited.has(id)) return null;
+  visited.add(id);
+  const row=map[id];
+  const digits=String(row.codigo).replace(/[^0-9]/g,'');
+  const isPrimera=row.deps.length===0&&digits[0]!=='3'&&digits.length>=6;
+  if(isPrimera) return row.fecha?{id,date:row.fecha,nombre:row.nombre}:null;
+  for(const t of row.deps){
+    const r=findPrimeraEtapaInMap(t,map,new Set([...visited]));
+    if(r) return r;
+  }
+  return null;
+}
+
+function recalcAllDeadlines(){
+  const map=buildEntryMap();
+  let updated=0;
+  for(const [id,row] of Object.entries(map)){
+    const days=deadlineDaysForCodigo(row.codigo);
+    if(!days) continue;
+    const primera=findPrimeraEtapaInMap(id,map,new Set());
+    if(!primera) continue;
+    const newLimit=addCalDays(primera.date,days);
+    if(row._entry.fechaLimite!==newLimit){
+      row._entry.fechaLimite=newLimit;
+      updated++;
+      log('FECHA LÍMITE AUTO',`"${row.nombre}" → ${newLimit} (+${days}d desde ${dispDate(primera.date)})`);
+    }
+  }
+  renderGantt(); renderBacklog();
+  if(updated>0) markChg();
+  toast(`✓ ${updated} fecha${updated!==1?'s':''} límite actualizada${updated!==1?'s':''}`);
+  log('RECALC FECHAS LÍMITE',`${updated} procesos actualizados`);
+}
+
 
 // Called after placing/moving an entry — check if it's a primera etapa
 // and propagate deadlines if so
 function checkAndPropagateDeadline(entry, date){
   if(!entry || !date) return;
-  if(!isPrimeraEtapa(entry)) return;
-  // Recalculate deadlines for the whole plan (bottom-up)
-  recalcAllDeadlines();
+  // Check if it's a primera etapa using the map approach
+  const digits = String(entry.codigo||'').replace(/[^0-9]/g,'');
+  const isPrimera = (!entry.deps||entry.deps.length===0) && digits[0]!=='3' && digits.length>=6;
+  if(!isPrimera) return;
+  // Small delay to let grid update first
+  setTimeout(recalcAllDeadlines, 100);
 }
 
 // ════════════ GOOGLE DRIVE / SHEETS ════════════
