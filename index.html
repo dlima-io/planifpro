@@ -2402,6 +2402,7 @@ function dropBacklogToGrid(blIdx, destEq, destDate){
   grid[destEq][destDate].push(entry);
   backlog.splice(blIdx,1);
   log('PROGRAMAR',`"${entry.nombre}" → ${destEq} · ${dispDate(destDate)} (del backlog)`);
+  checkAndPropagateDeadline(entry, destDate);
   markChg(); renderGantt(); renderBacklog();
   toast('✓ Programado en '+destEq+' · '+dispDate(destDate));
 }
@@ -2631,6 +2632,7 @@ function doMoveSelection(destEq, destDate, anchorEq, anchorDate){
     if(!grid[p.newEq][p.newDate]) grid[p.newEq][p.newDate]=[];
     grid[p.newEq][p.newDate].push(e);
     log('MOVER (multi)',`"${e.nombre}" DE ${p.eq}·${dispDate(p.date)} A ${p.newEq}·${dispDate(p.newDate)}`);
+    checkAndPropagateDeadline(e, p.newDate);
     moved++;
   }
 
@@ -2899,6 +2901,8 @@ function doMove(destEq, destDate){
     `       DE: ${drag.equip} · ${dispDate(drag.date)}\n` +
     `       A:  ${destEq} · ${dispDate(destDate)}`
   );
+  // If primera etapa moved, recalculate deadlines for entire chain
+  checkAndPropagateDeadline(drag.entry, destDate);
   markChg(); renderGantt();
   toast('Movido → '+destEq+' · '+dispDate(destDate));
 }
@@ -4134,6 +4138,97 @@ function openLegend(){
 }
 function closeLegend(){
   document.getElementById('legendPanel').classList.remove('open');
+}
+
+// ════════════ AUTO FECHA LÍMITE ════════════
+
+// Get the 6th digit (index 5) of a código string, ignoring non-digits
+function sixthDigit(codigo){
+  if(!codigo) return null;
+  const digits = String(codigo).replace(/\D/g,'');
+  return digits.length >= 6 ? digits[5] : null;
+}
+
+// Days offset by 6th digit
+function deadlineDaysForCodigo(codigo){
+  const d = sixthDigit(codigo);
+  if(d==='5') return 45;
+  if(d==='6') return 60;
+  if(d==='7') return 90;
+  return null;
+}
+
+// Is this entry a "primera etapa"?
+// = has no dependencies AND codigo does NOT start with 3 (aluminio prints)
+function isPrimeraEtapa(entry){
+  if(!entry) return false;
+  if(entry.deps && entry.deps.length > 0) return false;
+  if(!entry.codigo) return false;
+  // Aluminio = codes starting with 3
+  const digits = String(entry.codigo).replace(/[^0-9]/g,'');
+  if(digits[0] === '3') return false;
+  return true;
+}
+
+// Add N calendar days to a date string 'YYYY-MM-DD'
+function addCalDays(dateStr, days){
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return dk(d);
+}
+
+// Propagate deadline from a primera etapa to its entire dep chain
+// srcDate: the scheduled date of the primera etapa
+// visited: Set of entry IDs already processed (avoid cycles)
+function propagateDeadlines(srcEntry, srcDate, visited){
+  if(!srcEntry || !srcEntry.id) return;
+  visited = visited || new Set();
+  if(visited.has(srcEntry.id)) return;
+  visited.add(srcEntry.id);
+
+  // Find all entries that depend on srcEntry (direct dependents)
+  const dependents = findAllDependents(srcEntry.id);
+
+  for(const dep of dependents){
+    const days = deadlineDaysForCodigo(dep.entry.codigo);
+    if(days !== null){
+      const newLimit = addCalDays(srcDate, days);
+      if(dep.entry.fechaLimite !== newLimit){
+        dep.entry.fechaLimite = newLimit;
+        log('FECHA LÍMITE AUTO',
+          `"${dep.entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(srcDate)})`);
+      }
+    }
+    // Recurse into this dependent's dependents
+    propagateDeadlines(dep.entry, srcDate, visited);
+  }
+}
+
+// Find all entries (grid + backlog) that have a dep pointing to targetId
+function findAllDependents(targetId){
+  const result = [];
+  for(const eq of eqs){
+    for(const [date, entries] of Object.entries(grid[eq]||{})){
+      entries.forEach((e,i)=>{
+        if(e.deps && e.deps.some(d=>d.targetId===targetId))
+          result.push({entry:e, equip:eq, date, idx:i});
+      });
+    }
+  }
+  backlog.forEach((e,i)=>{
+    if(e.deps && e.deps.some(d=>d.targetId===targetId))
+      result.push({entry:e, inBacklog:true, idx:i});
+  });
+  return result;
+}
+
+// Called after placing/moving an entry — check if it's a primera etapa
+// and propagate deadlines if so
+function checkAndPropagateDeadline(entry, date){
+  if(!entry || !date) return;
+  if(!isPrimeraEtapa(entry)) return;
+  // This is a primera etapa — propagate to all dependents
+  propagateDeadlines(entry, date, new Set());
 }
 
 // ════════════ GOOGLE DRIVE / SHEETS ════════════
