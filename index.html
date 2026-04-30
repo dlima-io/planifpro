@@ -4234,7 +4234,12 @@ function recalcAllDeadlines(){
         console.log('[RECALC] entry:', entry.nombre, 'codigo:', entry.codigo, 'deps:', entry.deps?.length, 'isPrimera:', isP);
         if(isP){
           const dependents = findAllDependents(entry.id);
-          console.log('[RECALC] dependents found:', dependents.length, dependents.map(d=>d.entry.nombre+'/'+d.entry.codigo));
+          console.log('[RECALC] primera etapa ID:', entry.id, 'nombre:', entry.nombre);
+          console.log('[RECALC] dependents found:', dependents.length);
+          for(const dep of dependents){
+            const matchingDep = dep.entry.deps.find(d=>d.targetId===entry.id);
+            console.log('[RECALC]   dep:', dep.entry.nombre, '| dep.targetId:', matchingDep?.targetId, '| equals entry.id:', matchingDep?.targetId===entry.id, '| dep entry id:', dep.entry.id);
+          }
           propagateDeadlines(entry, date, new Set());
           count++;
         }
