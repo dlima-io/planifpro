@@ -1036,6 +1036,7 @@ let gSheetName = '';        // Spreadsheet name
 let gLastModified = null;   // Last known modified time (for polling)
 let gLastVersion = null;    // Last known Drive file version (integer, monotonic)
 let gLastModifier = '';     // Display name of last modifier
+let gSheetColOrder = null;  // Column order as read from Sheet (array of header strings)
 let gPollTimer = null;      // Polling interval
 let gSaveTimer = null;      // Debounce timer for auto-save
 let gConnected = false;
@@ -4248,25 +4249,52 @@ async function gSaveNow(){
   gSaving=true;
   gSetStatus('saving','Guardando en Drive…');
   try{
-    // Build rows (same format as saveXlsxCols)
-    const hdrs=['Equipo','Fecha','ID','Nombre','Código','Lote','Cantidad','U.M.','Estado','Horas','Formato','F.Límite','Límite Excedido','Faltante','Deps.','Obs.'];
+    // Default column definitions
+    const COL_MAP = {
+      'equipo':     (eq,date,e)=>eq||'',
+      'fecha':      (eq,date,e)=>date||'',
+      'id':         (eq,date,e)=>e.id||'',
+      'nombre':     (eq,date,e)=>e.nombre||'',
+      'producto':   (eq,date,e)=>e.nombre||'',
+      'código':     (eq,date,e)=>e.codigo||'',
+      'codigo':     (eq,date,e)=>e.codigo||'',
+      'lote':       (eq,date,e)=>e.lote||'',
+      'cantidad':   (eq,date,e)=>e.cantidad||'',
+      'u.m.':       (eq,date,e)=>e.unidad||'',
+      'unidad':     (eq,date,e)=>e.unidad||'',
+      'estado':     (eq,date,e)=>stLabel(e.estado)||'',
+      'horas':      (eq,date,e)=>e.horas||'',
+      'formato':    (eq,date,e)=>e.formato||'',
+      'f.límite':   (eq,date,e)=>e.fechaLimite||'',
+      'f.limite':   (eq,date,e)=>e.fechaLimite||'',
+      'límite excedido':(eq,date,e)=>(e.fechaLimite&&new Date(e.fechaLimite+'T00:00:00')<new Date((date||'9999')+'T00:00:00')?'SÍ':''),
+      'limite excedido':(eq,date,e)=>(e.fechaLimite&&new Date(e.fechaLimite+'T00:00:00')<new Date((date||'9999')+'T00:00:00')?'SÍ':''),
+      'faltante':   (eq,date,e)=>e.faltante||'',
+      'deps.':      (eq,date,e)=>(e.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';'),
+      'deps':       (eq,date,e)=>(e.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';'),
+      'obs.':       (eq,date,e)=>e.obs||'',
+      'obs':        (eq,date,e)=>e.obs||'',
+    };
+    const DEFAULT_HDRS=['Equipo','Fecha','ID','Nombre','Código','Lote','Cantidad','U.M.','Estado','Horas','Formato','F.Límite','Límite Excedido','Faltante','Deps.','Obs.'];
+    // Use stored column order if available, else default
+    const hdrs = gSheetColOrder || DEFAULT_HDRS;
+    const hdrsLow = hdrs.map(h=>h.toLowerCase());
+
+    function buildRow(eq, date, e){
+      return hdrs.map((h,i)=>{
+        const fn = COL_MAP[hdrsLow[i]];
+        return fn ? fn(eq,date,e) : ''; // unknown cols → empty
+      });
+    }
+
     const rows=[hdrs];
     for(const eq of eqs){
       for(const [date,entries] of Object.entries(grid[eq]||{})){
-        for(const e of (entries||[])){
-          rows.push([eq,date,e.id,e.nombre,e.codigo,e.lote,e.cantidad,e.unidad,
-            stLabel(e.estado),e.horas||'',e.formato,e.fechaLimite,
-            (e.fechaLimite&&new Date(e.fechaLimite+'T00:00:00')<new Date(date+'T00:00:00')?'SÍ':''),
-            e.faltante,(e.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';'),e.obs]);
-        }
+        for(const e of (entries||[])) rows.push(buildRow(eq,date,e));
       }
     }
     // Backlog rows
-    for(const e of backlog){
-      rows.push(['','',e.id,e.nombre,e.codigo,e.lote,e.cantidad,e.unidad,
-        stLabel(e.estado),e.horas||'',e.formato,e.fechaLimite,'',e.faltante,
-        (e.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';'),e.obs]);
-    }
+    for(const e of backlog) rows.push(buildRow('','',e));
     // Calendario rows
     const calHdrs=['Fecha','Tipo','Descripcion','Equipos','Horas'];
     const calRows=[calHdrs];
@@ -4335,7 +4363,10 @@ async function gReloadFromSheet(){
     if(!rows.length){ toast('La hoja está vacía'); gSetStatus('ok','☁ '+gSheetName); return; }
 
     // Parse rows directly (no CSV conversion — avoids comma/newline issues)
-    const hdrs = rows[0].map(h=>String(h||'').trim().toLowerCase());
+    // Store original column order from Sheet
+    const originalHdrs = rows[0].map(h=>String(h||'').trim());
+    gSheetColOrder = originalHdrs;
+    const hdrs = originalHdrs.map(h=>h.toLowerCase());
     const iE=hdrs.indexOf('equipo'), iD=hdrs.indexOf('fecha');
     const iID=hdrs.indexOf('id');
     const iN=hdrs.findIndex(h=>h==='nombre'||h==='producto');
