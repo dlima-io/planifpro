@@ -4146,8 +4146,9 @@ function closeLegend(){
 // Get the 6th digit (index 5) of a código string, ignoring non-digits
 function sixthDigit(codigo){
   if(!codigo) return null;
-  const digits = String(codigo).replace(/\D/g,'');
-  return digits.length >= 6 ? digits[5] : null;
+  const digits = String(codigo).replace(/[^0-9]/g,'');
+  if(digits.length < 6) return null;
+  return digits[digits.length - 6];
 }
 
 // Days offset by 6th digit
