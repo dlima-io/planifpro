@@ -4227,8 +4227,10 @@ function findAllDependents(targetId){
 function checkAndPropagateDeadline(entry, date){
   if(!entry || !date) return;
   if(!isPrimeraEtapa(entry)) return;
-  // This is a primera etapa — propagate to all dependents
+  // This is a primera etapa — propagate to all dependents (grid AND backlog)
   propagateDeadlines(entry, date, new Set());
+  // Re-render backlog chips to show updated deadline icons
+  if(typeof renderBacklog === 'function') renderBacklog();
 }
 
 // ════════════ GOOGLE DRIVE / SHEETS ════════════
