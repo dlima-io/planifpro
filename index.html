@@ -4191,6 +4191,7 @@ function propagateDeadlines(srcEntry, srcDate, visited){
   const dependents = findAllDependents(srcEntry.id);
 
   for(const dep of dependents){
+    if(visited.has(dep.entry.id)) continue;
     const days = deadlineDaysForCodigo(dep.entry.codigo);
     if(days !== null){
       const newLimit = addCalDays(srcDate, days);
@@ -4200,9 +4201,71 @@ function propagateDeadlines(srcEntry, srcDate, visited){
           `"${dep.entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(srcDate)})`);
       }
     }
-    // Recurse into this dependent's dependents
+    // Recurse into this dependent's dependents (passing original srcDate)
     propagateDeadlines(dep.entry, srcDate, visited);
   }
+}
+
+// Wrapper that also propagates through same-codigo chain
+// (handles cases where multiple entries share the same codigo across dates)
+function propagateDeadlinesComplete(srcEntry, srcDate){
+  const visited = new Set();
+  // Phase 1: propagate normally
+  propagateDeadlines(srcEntry, srcDate, visited);
+  // Phase 2: for each visited entry, also find dependents that might point
+  // to other instances of the same codigo (different lote/fecha)
+  const allVisited = [...visited];
+  for(const visitedId of allVisited){
+    const visitedEntry = findEntryById(visitedId);
+    if(!visitedEntry) continue;
+    // Find any entry whose deps contain a targetId that resolves to 
+    // an entry with the same codigo as visitedEntry
+    const extraDeps = findDependentsByCodigo(visitedEntry.codigo, visited);
+    for(const dep of extraDeps){
+      if(visited.has(dep.entry.id)) continue;
+      const days = deadlineDaysForCodigo(dep.entry.codigo);
+      if(days !== null){
+        const newLimit = addCalDays(srcDate, days);
+        if(dep.entry.fechaLimite !== newLimit){
+          dep.entry.fechaLimite = newLimit;
+          log('FECHA LÍMITE AUTO (by codigo)',
+            `"${dep.entry.nombre}" → ${newLimit} (+${days}d desde ${dispDate(srcDate)})`);
+        }
+      }
+      propagateDeadlines(dep.entry, srcDate, visited);
+    }
+  }
+}
+
+// Find entries that depend on ANY entry with a given codigo
+function findDependentsByCodigo(codigo, excludeIds){
+  // Get all entry IDs that have this codigo
+  const codigoIds = new Set();
+  for(const eq of eqs){
+    for(const entries of Object.values(grid[eq]||{})){
+      for(const e of entries) if(e.codigo===codigo) codigoIds.add(e.id);
+    }
+  }
+  for(const e of backlog) if(e.codigo===codigo) codigoIds.add(e.id);
+
+  // Find entries whose deps point to any of those IDs
+  const result = [];
+  const check = (e, extra={}) => {
+    if(!e.deps) return;
+    for(const d of e.deps){
+      if(codigoIds.has(d.targetId) && !excludeIds.has(e.id)){
+        result.push({entry:e, ...extra});
+        break;
+      }
+    }
+  };
+  for(const eq of eqs){
+    for(const [date,entries] of Object.entries(grid[eq]||{})){
+      entries.forEach((e,i)=>check(e,{equip:eq,date,idx:i}));
+    }
+  }
+  backlog.forEach((e,i)=>check(e,{inBacklog:true,idx:i}));
+  return result;
 }
 
 // Find all entries (grid + backlog) that have a dep pointing to targetId
@@ -4226,27 +4289,16 @@ function findAllDependents(targetId){
 // Scan ALL primera etapas in grid and propagate deadlines
 function recalcAllDeadlines(){
   let count = 0;
-  console.log('[RECALC] eqs:', eqs);
   for(const eq of eqs){
     for(const [date, entries] of Object.entries(grid[eq]||{})){
       for(const entry of entries){
-        const isP = isPrimeraEtapa(entry);
-        console.log('[RECALC] entry:', entry.nombre, 'codigo:', entry.codigo, 'deps:', entry.deps?.length, 'isPrimera:', isP);
-        if(isP){
-          const dependents = findAllDependents(entry.id);
-          console.log('[RECALC] primera etapa ID:', entry.id, 'nombre:', entry.nombre);
-          console.log('[RECALC] dependents found:', dependents.length);
-          for(const dep of dependents){
-            const matchingDep = dep.entry.deps.find(d=>d.targetId===entry.id);
-            console.log('[RECALC]   dep:', dep.entry.nombre, '| dep.targetId:', matchingDep?.targetId, '| equals entry.id:', matchingDep?.targetId===entry.id, '| dep entry id:', dep.entry.id);
-          }
-          propagateDeadlines(entry, date, new Set());
+        if(isPrimeraEtapa(entry)){
+          propagateDeadlinesComplete(entry, date);
           count++;
         }
       }
     }
   }
-  console.log('[RECALC] total primera etapas:', count);
   renderGantt();
   renderBacklog();
   markChg();
@@ -4260,7 +4312,7 @@ function checkAndPropagateDeadline(entry, date){
   if(!entry || !date) return;
   if(!isPrimeraEtapa(entry)) return;
   // This is a primera etapa — propagate to all dependents (grid AND backlog)
-  propagateDeadlines(entry, date, new Set());
+  propagateDeadlinesComplete(entry, date);
   // Re-render backlog chips to show updated deadline icons
   if(typeof renderBacklog === 'function') renderBacklog();
 }
