@@ -199,6 +199,10 @@ body.light .th-past{opacity:.4}
 .th-triple{background:rgba(167,139,250,.12)!important;color:var(--purple)!important}
 body.light .dc.triple-turno{background:rgba(100,40,200,.05)!important}
 body.light .th-triple{background:rgba(100,40,200,.08)!important;color:#6428c8!important}
+.dc.jornada-reducida{background:rgba(245,158,11,.07)!important}
+.th-reducida{background:rgba(245,158,11,.13)!important;color:var(--warn)!important}
+body.light .dc.jornada-reducida{background:rgba(196,122,10,.05)!important}
+body.light .th-reducida{background:rgba(196,122,10,.1)!important;color:#b45309!important}
 .th-holiday{background:rgba(239,68,68,.12)!important;color:var(--red)!important}
 .th-sat-en{background:rgba(34,211,238,.08)!important}
 body.light .dc.holiday{background:repeating-linear-gradient(-45deg,rgba(196,48,48,.07),rgba(196,48,48,.07) 3px,transparent 3px,transparent 8px)!important}
@@ -693,8 +697,12 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
       <!-- Add manually -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div style="display:flex;flex-direction:column;gap:6px">
-          <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Fecha</label>
+          <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Fecha (desde)</label>
           <input type="date" id="calDate">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px" id="calHastaWrapper" style="display:none">
+          <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Hasta (opcional)</label>
+          <input type="date" id="calDateHasta">
         </div>
         <div style="display:flex;flex-direction:column;gap:6px">
           <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Tipo</label>
@@ -702,6 +710,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
             <option value="feriado">Feriado</option>
             <option value="sabado_habilitado">Sábado habilitado</option>
             <option value="triple_turno">Triple turno (24h)</option>
+            <option value="jornada_reducida">Jornada reducida</option>
           </select>
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;grid-column:1/-1">
@@ -709,9 +718,10 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
           <input type="text" id="calDesc" placeholder="Ej: 25 de Mayo, Jornada extra Q2">
         </div>
         <div id="calSatFields" style="display:none;grid-column:1/-1;display:none;gap:12px;grid-template-columns:1fr 1fr">
-          <div style="display:flex;flex-direction:column;gap:6px">
-            <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Equipos (vacío = todos)</label>
-            <input type="text" id="calEquipos" placeholder="Ej: GVH 1, GVH 2">
+          <div style="display:flex;flex-direction:column;gap:6px;grid-column:1/-1">
+            <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Equipos (ninguno = todos)</label>
+            <div id="calEquiposList" style="display:flex;flex-wrap:wrap;gap:6px;padding:6px;background:var(--surf2);border:1px solid var(--border);border-radius:5px;min-height:32px"></div>
+            <div style="font-size:10px;color:var(--text3)">Sin selección = aplica a todos los equipos</div>
           </div>
           <div style="display:flex;flex-direction:column;gap:6px">
             <label style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Horas disponibles</label>
@@ -1095,6 +1105,8 @@ let holidays = new Set();
 let enabledSats = new Map();
 // tripleShifts: Map of 'YYYY-MM-DD' -> {desc, equipos:[], horas:24}
 let tripleShifts = new Map();
+// reducedShifts: Map of 'YYYY-MM-DD' -> {desc, equipos:[], horas:N}
+let reducedShifts = new Map();
 
 // ── FORMAT HIGHLIGHTING ──
 // Set of equip names where format coloring is active
@@ -1157,13 +1169,19 @@ function isWorkday(dateStr, equip){
 
 // Hours available on a workday (15h normally, 7h on enabled saturday)
 function workdayHours(dateStr, equip){
-  // Triple shift: applies to all equips (empty list) or specific ones
+  // Triple shift overrides everything
   if(tripleShifts.has(dateStr)){
     const ts=tripleShifts.get(dateStr);
     const appliesToAll=!ts.equipos||ts.equipos.length===0;
     if(appliesToAll||(equip&&ts.equipos.includes(equip)))
       return ts.horas||24;
-    // Triple shift exists but NOT for this equip → fall through to normal
+  }
+  // Reduced shift (jornada reducida) — overrides normal 15h
+  if(reducedShifts.has(dateStr)){
+    const rs=reducedShifts.get(dateStr);
+    const appliesToAll=!rs.equipos||rs.equipos.length===0;
+    if(appliesToAll||(equip&&rs.equipos.includes(equip)))
+      return rs.horas||8;
   }
   const d = new Date(dateStr + 'T00:00:00');
   if(d.getDay() === 6 && enabledSats.has(dateStr)){
@@ -1346,6 +1364,9 @@ function tryPlanCsv(text){
     const cols=csvLine(lines[i],sep);
     const eq=(cols[iE]||'').trim(), dt=(cols[iD]||'').trim(), nb=(cols[iN]||'').trim();
     if(!eq||!dt||!nb) continue;
+    // Skip entries with no quantity (point 3)
+    const cantQ=iQ>=0?(cols[iQ]||'').trim():'x';
+    if(cantQ===''||cantQ==='0') continue;
     if(!ng[eq]){ng[eq]={};neqs.push(eq);}
     if(!ng[eq][dt]) ng[eq][dt]=[];
     if(ng[eq][dt].length>=5) continue;
@@ -1528,7 +1549,7 @@ function buildContChips(conts){
   }).join('');
 }
 
-function computeSpan(startKey, horas, dates, equip){
+function computeSpan(startKey, horas, dates, equip, alreadyUsedDay1){
   // How many calendar days does this entry occupy, respecting workday calendar?
   if(!horas||horas<=1) return 1;
   let remaining=horas;
@@ -1537,7 +1558,10 @@ function computeSpan(startKey, horas, dates, equip){
   for(let i=startIdx;i<dates.length&&remaining>0;i++){
     const key=dates[i].key;
     if(!isWorkday(key, equip||null)) continue;
-    const cap=workdayHours(key,equip||null);
+    let cap=workdayHours(key,equip||null);
+    // On day 1, subtract hours already used by previous continuations
+    if(i===startIdx && alreadyUsedDay1) cap=Math.max(0, cap-alreadyUsedDay1);
+    if(cap<=0){ span++; continue; } // day fully used, still counts as a day
     remaining-=cap;
     span++;
   }
@@ -1566,8 +1590,9 @@ function renderGantt(){
     const isHol=holidays.has(key);
     const isSatEn=enabledSats.has(key);
     const isTriple=tripleShifts.has(key);
+    const isReduced=reducedShifts.has(key);
     const isPast=key<todK;
-    dH+=`<th class="${we?'we ':''} ${tot?'tod ':''} ${isHol?'th-holiday ':''} ${isSatEn?'th-sat-en ':''} ${isTriple?'th-triple ':''} ${isPast?'th-past ':''} drow-th" style="top:28px"><div class="thi"><span class="tdow">${dow}</span><span class="tday">${day}</span><span class="tmon">${mon}</span></div></th>`;
+    dH+=`<th class="${we?'we ':''} ${tot?'tod ':''} ${isHol?'th-holiday ':''} ${isSatEn?'th-sat-en ':''} ${isTriple?'th-triple ':''} ${isReduced?'th-reducida ':''} ${isPast?'th-past ':''} drow-th" style="top:28px"><div class="thi"><span class="tdow">${dow}</span><span class="tday">${day}</span><span class="tmon">${mon}</span></div></th>`;
   }
   head.innerHTML+=dH+'</tr>';
 
@@ -1594,8 +1619,12 @@ function renderGantt(){
         const span=computeSpan(key,h,planDates,eq);
         if(span<=1) continue;
         const startIdx=planDates.findIndex(d=>d.key===key);
-        // Day 1 consumes its cap — only remaining hours spill to next days
-        let remaining=h - workdayHours(key,eq);
+        // Day 1: subtract what's already used by continuations from other processes
+        const alreadyUsedOnDay1 = (continuations[key]||[])
+          .filter(ct=>ct.entry!==entry) // exclude this entry's own continuations
+          .reduce((s,ct)=>s+ct.horasThisDay, 0);
+        const day1Cap = Math.max(0, workdayHours(key,eq) - alreadyUsedOnDay1);
+        let remaining = h - day1Cap;
         let dayNum=1;
         for(let si=1;si<planDates.length&&remaining>0;si++){
           const futureDate=planDates[startIdx+si];
@@ -1622,6 +1651,7 @@ function renderGantt(){
       const isSatEnCell=enabledSats.has(key) && we;
       const isTripleCell=tripleShifts.has(key) && (()=>{const ts=tripleShifts.get(key);return !ts.equipos||!ts.equipos.length||ts.equipos.includes(eq);})();
       const isPastCell=key<todK;
+      const isReducedCell=reducedShifts.has(key)&&(()=>{const rs=reducedShifts.get(key);return !rs.equipos||!rs.equipos.length||rs.equipos.includes(eq);})();
       const entries=(grid[eq]&&grid[eq][key])||[];
       const conts=continuations[key]||[];
 
@@ -1637,7 +1667,7 @@ function renderGantt(){
       const loadLabel=cellLoad>0?Math.round(cellLoad*10)/10+'h':'';
 
       const canAdd=entries.length<5;
-      row+=`<td class="dc ${we?'we ':''} ${tot?'tod2 ':''}  ${isHolCell?'holiday ':''} ${isSatEnCell?'sat-enabled ':''}  ${isTripleCell?'triple-turno ':''}  ${isPastCell?'past ':''}" 
+      row+=`<td class="dc ${we?'we ':''} ${tot?'tod2 ':''}  ${isHolCell?'holiday ':''} ${isSatEnCell?'sat-enabled ':''}  ${isTripleCell?'triple-turno ':''}  ${isPastCell?'past ':''} ${isReducedCell?'jornada-reducida ':''}" 
         data-eq="${esc(eq)}" data-date="${key}"
       oncontextmenu="showCtxMenu(event,'${esc(eq)}','${key}',null)"
       ><div class="chips-wrap">${buildContChips(conts)}${buildChips(eq,key,entries,1)}</div>${canAdd?`<div class="add-chip-btn" onclick="openModal('${esc(eq)}','${key}',null)" title="Agregar proceso">+</div>`:''
@@ -1675,6 +1705,9 @@ function buildChips(eq,key,entries){
     if(e.fechaLimite) tipParts.push('Límite: '+e.fechaLimite+(overdue?' ⚠ EXCEDIDO':''));
     if(hasDeps) tipParts.push('🔗 '+e.deps.length+' dep'+(e.deps.length>1?'s':''));
 
+    // Calculate hours already used by continuations on this day (from other processes)
+    const contOnDay=(continuations&&continuations[key])||[];
+    const alreadyUsed=contOnDay.filter(ct=>ct.entry!==e).reduce((s,ct)=>s+ct.horasThisDay,0);
     const fmtBg=(formatMode&&e.formato&&formatEquips.has(eq))?`background:${getFormatColor(e.formato)}!important;`:'';
     h+=`<div class="chip ${stC} ${isHi?'dep-hi':''} ${isSrc?'dep-src':''} ${isSel?'sel':''} ${fmtBg?'fmt-hi':''}"
       style="${fmtBg}"
@@ -1697,7 +1730,7 @@ function buildChips(eq,key,entries){
           ${(!overdue&&soon)?`<span class="chip-icon soon" title="Límite próximo: ${esc(e.fechaLimite)}">⚡</span>`:''}
           ${hasFalt?`<span class="chip-icon falt" title="${esc(e.faltante)}">⚠</span>`:''}
           ${hasDeps?`<span class="chip-icon dep" title="${e.deps.length} dependencia${e.deps.length>1?'s':''}">🔗</span>`:''}
-          ${(e.horas&&e.horas>workdayHours(key,eq))?`<span class="chip-icon span" title="Continúa ${computeSpan(key,e.horas,planDates,eq)} días">📅${computeSpan(key,e.horas,planDates,eq)}d</span>`:''}
+          ${(e.horas&&e.horas>workdayHours(key,eq))?`<span class="chip-icon span" title="Continúa ${computeSpan(key,e.horas,planDates,eq,alreadyUsed)} días">📅${computeSpan(key,e.horas,planDates,eq,alreadyUsed)}d</span>`:''}
         </div>
       </div>
     </div>`;
@@ -2796,7 +2829,28 @@ function initDragDrop(){
       if(td && drag){
         const destEq = td.dataset.eq;
         const destDate = td.dataset.date;
-        if(destEq && destDate && !(drag.equip===destEq && drag.date===destDate)){
+        if(destEq && destDate){
+        if(drag.equip===destEq && drag.date===destDate){
+          // Same cell — reorder by drop Y position
+          const entries=grid[destEq][destDate]||[];
+          if(entries.length>1){
+            const srcIdx=drag.idx;
+            const chips=[...td.querySelectorAll('.chip:not(.chip-cont)')];
+            const dropY=ev.clientY;
+            let targetIdx=chips.length;
+            for(let ci=0;ci<chips.length;ci++){
+              const r=chips[ci].getBoundingClientRect();
+              if(dropY<r.top+r.height/2){ targetIdx=ci; break; }
+            }
+            if(targetIdx!==srcIdx){
+              pushUndo();
+              const [moved]=entries.splice(srcIdx,1);
+              entries.splice(targetIdx>srcIdx?targetIdx-1:targetIdx,0,moved);
+              markChg(); renderGantt();
+              toast('↕ Proceso reordenado');
+            }
+          }
+        } else {
           // If dragged chip is part of a selection, move all
           const dragKey=`${drag.equip}|${drag.date}|${drag.idx}`;
           if(sel.size>1 && sel.has(dragKey)){
@@ -2805,6 +2859,7 @@ function initDragDrop(){
             doMove(destEq, destDate);
           }
         }
+      }
       }
 
       document.querySelectorAll('.chip.dep-link-hover').forEach(el=>el.classList.remove('dep-link-hover'));
@@ -2904,7 +2959,13 @@ function doMove(destEq, destDate){
   );
   // If primera etapa moved, recalculate deadlines for entire chain
   checkAndPropagateDeadline(drag.entry, destDate);
-  markChg(); renderGantt();
+  // Check if cascade shift is needed for consecutive processes
+  const cascadeResult = checkCascadeShift(destEq, destDate);
+  if(cascadeResult && cascadeResult.length > 0){
+    showCascadeConfirm(cascadeResult, destEq);
+  } else {
+    markChg(); renderGantt();
+  }
   toast('Movido → '+destEq+' · '+dispDate(destDate));
 }
 
@@ -3307,6 +3368,7 @@ function saveXlsxCols(){
   for(const d of [...holidays].sort()) calRows2.push([d,'feriado','','','']);
   for(const [d,v] of [...enabledSats.entries()].sort()) calRows2.push([d,'sabado_habilitado',v.desc||'',(v.equipos||[]).join(','),v.horas||7]);
   for(const [d,v] of [...tripleShifts.entries()].sort()) calRows2.push([d,'triple_turno',v.desc||'',(v.equipos||[]).join(','),v.horas||24]);
+  for(const [d,v] of [...reducedShifts.entries()].sort()) calRows2.push([d,'jornada_reducida',v.desc||'',(v.equipos||[]).join(','),v.horas||8]);
   if(calRows2.length>1){
     const calWs2=XLSX.utils.aoa_to_sheet(calRows2);
     calWs2['!cols']=[{wch:12},{wch:20},{wch:30},{wch:30},{wch:8}];
@@ -3356,6 +3418,9 @@ function loadXlsxCols(wb){
     else{ dt=String(dt||'').trim(); }
     const nb=String(r[iN]||'').trim();
     if(!nb) continue;
+    // Skip entries with no quantity (point 3)
+    const cantXl2=iQ>=0?String(r[iQ]||'').trim():'x';
+    if(cantXl2===''||cantXl2==='0') continue;
     const savedId=iID>=0?String(r[iID]||'').trim():'';
     const depsStr=iDp>=0?String(r[iDp]||'').trim():'';
     if(!eq||!dt){
@@ -3489,6 +3554,7 @@ function saveXlsx(){
   for(const d of [...holidays].sort()) calRows.push([d,'feriado','','','']);
   for(const [d,v] of [...enabledSats.entries()].sort()) calRows.push([d,'sabado_habilitado',v.desc||'',(v.equipos||[]).join(','),v.horas||7]);
   for(const [d,v] of [...tripleShifts.entries()].sort()) calRows.push([d,'triple_turno',v.desc||'',(v.equipos||[]).join(','),v.horas||24]);
+  for(const [d,v] of [...reducedShifts.entries()].sort()) calRows.push([d,'jornada_reducida',v.desc||'',(v.equipos||[]).join(','),v.horas||8]);
   if(calRows.length>1){
     const calWs=XLSX.utils.aoa_to_sheet(calRows);
     calWs['!cols']=[{wch:12},{wch:20},{wch:30},{wch:30},{wch:8}];
@@ -3671,7 +3737,27 @@ function markChg(){
 // ════════════ CALENDAR ════════════
 function openCalPanel(){
   renderCalList();
+  renderCalEquiposList();
   document.getElementById('calPanel').style.display='flex';
+}
+
+function renderCalEquiposList(){
+  const el = document.getElementById('calEquiposList');
+  if(!el) return;
+  el.innerHTML = eqs.map(eq=>{
+    const id = 'calEq_'+CSS.escape(eq);
+    return `<label style="display:flex;align-items:center;gap:5px;font-size:11px;cursor:pointer;
+      background:var(--surf3);border:1px solid var(--border);border-radius:4px;padding:3px 8px;white-space:nowrap">
+      <input type="checkbox" id="${id}" value="${esc(eq)}" style="width:12px;height:12px">
+      ${esc(eq)}
+    </label>`;
+  }).join('');
+}
+
+function getCalEquipos(){
+  const el = document.getElementById('calEquiposList');
+  if(!el) return [];
+  return [...el.querySelectorAll('input[type=checkbox]:checked')].map(cb=>cb.value);
 }
 function closeCalPanel(){
   document.getElementById('calPanel').style.display='none';
@@ -3680,11 +3766,14 @@ function closeCalPanel(){
 function toggleCalFields(){
   const t=document.getElementById('calType').value;
   const sf=document.getElementById('calSatFields');
-  sf.style.display=(t==='sabado_habilitado'||t==='triple_turno')?'grid':'none';
-  // Update horas default based on type
+  sf.style.display=(t==='sabado_habilitado'||t==='triple_turno'||t==='jornada_reducida')?'grid':'none';
   const hEl=document.getElementById('calHoras');
   if(hEl&&t==='triple_turno') hEl.value='24';
   else if(hEl&&t==='sabado_habilitado') hEl.value='7';
+  else if(hEl&&t==='jornada_reducida') hEl.value='8';
+  // Show/hide Hasta field
+  const hw=document.getElementById('calHastaWrapper');
+  if(hw) hw.style.display=t==='jornada_reducida'?'flex':'none';
 }
 
 function addCalEntry(){
@@ -3700,23 +3789,56 @@ function addCalEntry(){
   if(type==='feriado'){
     holidays.add(date);
   } else if(type==='sabado_habilitado'){
-    const eqs=document.getElementById('calEquipos').value.split(',').map(s=>s.trim()).filter(Boolean);
+    const eqs=getCalEquipos();
     const hs=parseFloat(document.getElementById('calHoras').value)||7;
     enabledSats.set(date,{desc,equipos:eqs,horas:hs});
   } else if(type==='triple_turno'){
-    const eqs=document.getElementById('calEquipos').value.split(',').map(s=>s.trim()).filter(Boolean);
+    const eqs=getCalEquipos();
     const hs=parseFloat(document.getElementById('calHoras').value)||24;
     tripleShifts.set(date,{desc,equipos:eqs,horas:hs});
+  } else if(type==='jornada_reducida'){
+    const eqs=getCalEquipos();
+    const hs=parseFloat(document.getElementById('calHoras').value)||8;
+    const hasta=document.getElementById('calDateHasta')?.value||'';
+    if(hasta && hasta>=date){
+      // Apply to all days in range
+      const d=new Date(date+'T00:00:00');
+      const dEnd=new Date(hasta+'T00:00:00');
+      while(d<=dEnd){
+        const dk2=dk(d);
+        reducedShifts.set(dk2,{desc,equipos:eqs,horas:hs});
+        d.setDate(d.getDate()+1);
+      }
+    } else {
+      reducedShifts.set(date,{desc,equipos:eqs,horas:hs});
+    }
   }
   log('CALENDARIO',`${type}: ${date} — ${desc}`);
   renderCalList(); renderGantt(); markChg();
   toast('Fecha agregada: '+date);
+  // Check cascades for capacity-reducing changes
+  if(type==='feriado'||type==='jornada_reducida'){
+    const affectedDate=date;
+    const calEqs=type==='jornada_reducida'
+      ?getCalEquipos()
+      :eqs; // feriado affects all
+    const allAffected=calEqs.length===0?eqs:calEqs;
+    for(const eq of allAffected){
+      if(!grid[eq]||(Object.keys(grid[eq]).length===0)) continue;
+      const cascadeResult=checkCascadeShift(eq,affectedDate);
+      if(cascadeResult&&cascadeResult.length>0){
+        showCascadeConfirm(cascadeResult,eq);
+        break; // one dialog at a time
+      }
+    }
+  }
 }
 
 function removeCalEntry(type,date){
   if(type==='feriado') holidays.delete(date);
   else if(type==='sabado_habilitado') enabledSats.delete(date);
   else if(type==='triple_turno') tripleShifts.delete(date);
+  else if(type==='jornada_reducida') reducedShifts.delete(date);
   renderCalList(); renderGantt(); markChg();
 }
 
@@ -3727,6 +3849,7 @@ function renderCalList(){
   for(const d of [...holidays].sort()) entries.push({date:d,type:'feriado',desc:''});
   for(const [d,v] of [...enabledSats.entries()].sort()) entries.push({date:d,type:'sabado_habilitado',...v});
   for(const [d,v] of [...tripleShifts.entries()].sort()) entries.push({date:d,type:'triple_turno',...v});
+  for(const [d,v] of [...reducedShifts.entries()].sort()) entries.push({date:d,type:'jornada_reducida',...v});
   entries.sort((a,b)=>a.date.localeCompare(b.date));
   count.textContent=entries.length?'('+entries.length+')':'';
   if(!entries.length){
@@ -3745,7 +3868,7 @@ function renderCalList(){
 
 function clearCal(){
   if(!confirm('¿Limpiar todo el calendario?')) return;
-  holidays.clear(); enabledSats.clear(); tripleShifts.clear();
+  holidays.clear(); enabledSats.clear(); tripleShifts.clear(); reducedShifts.clear();
   renderCalList(); renderGantt(); markChg();
 }
 
@@ -3754,6 +3877,7 @@ function exportCalCsv(){
   for(const d of [...holidays].sort()) rows.push([d,'feriado','','','']);
   for(const [d,v] of [...enabledSats.entries()].sort()) rows.push([d,'sabado_habilitado',v.desc||'',(v.equipos||[]).join(','),v.horas||7]);
   for(const [d,v] of [...tripleShifts.entries()].sort()) rows.push([d,'triple_turno',v.desc||'',(v.equipos||[]).join(','),v.horas||24]);
+  for(const [d,v] of [...reducedShifts.entries()].sort()) rows.push([d,'jornada_reducida',v.desc||'',(v.equipos||[]).join(','),v.horas||8]);
   const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
   dlBlob('\uFEFF'+csv,'calendario.csv','text/csv;charset=utf-8');
   toast('Calendario exportado');
@@ -3792,6 +3916,10 @@ function parseCalRows(rows){
     } else if(type==='triple_turno'){
       const eqs=eqsRaw?eqsRaw.split(',').map(s=>s.trim()).filter(Boolean):[];
       tripleShifts.set(date,{desc,equipos:eqs,horas:horas||24});
+      added++;
+    } else if(type==='jornada_reducida'){
+      const eqs=eqsRaw?eqsRaw.split(',').map(s=>s.trim()).filter(Boolean):[];
+      reducedShifts.set(date,{desc,equipos:eqs,horas:horas||8});
       added++;
     }
   }
@@ -4097,6 +4225,142 @@ function renderDlSection(){
 
 // ════════════ DEP CHAIN PANEL ════════════
 
+// ════════════ CASCADE SHIFT ════════════
+
+// After a move on equip, find consecutive processes that would need to shift
+// Returns array of {entry, fromDate, toDate, eq} or empty if no conflict
+function checkCascadeShift(eq, fromDate){
+  const shifts = [];
+  // Get all processes in this equip, sorted by date then position
+  const allEntries = [];
+  for(const [date, entries] of Object.entries(grid[eq]||{})){
+    entries.forEach((e,i)=>allEntries.push({entry:e, date, pos:i}));
+  }
+  allEntries.sort((a,b)=>a.date.localeCompare(b.date)||a.pos-b.pos);
+
+  if(!allEntries.length) return [];
+
+  // Walk through entries in order, simulating capacity
+  // For each day, compute how many hours are used by entries starting that day
+  // plus continuations from previous entries
+  // If a new entry can't fit, it needs to shift to the next workday
+
+  // Build a map: date → [entries starting that day]
+  const byDate = {};
+  for(const {entry, date} of allEntries){
+    if(!byDate[date]) byDate[date]=[]; 
+    byDate[date].push(entry);
+  }
+
+  // Find the "chain" of consecutive days starting from fromDate
+  const sortedDates = [...new Set(allEntries.map(e=>e.date))].sort();
+  const startIdx = sortedDates.indexOf(fromDate);
+  if(startIdx < 0) return [];
+
+  // Walk forward from fromDate, checking consecutive days
+  // Two dates are "consecutive" if there's no gap > 1 workday between them
+  const chainDates = [fromDate];
+  for(let i = startIdx+1; i < sortedDates.length; i++){
+    const prev = chainDates[chainDates.length-1];
+    const curr = sortedDates[i];
+    // Check if curr is within 2 calendar days of prev (allowing for weekends)
+    const prevD = new Date(prev+'T00:00:00');
+    const currD = new Date(curr+'T00:00:00');
+    const diffDays = Math.round((currD-prevD)/86400000);
+    if(diffDays > 3) break; // gap too large → stop cascade
+    chainDates.push(curr);
+  }
+
+  // For each date in chain (except first), check if processes starting there
+  // would be pushed by the capacity used by the previous day's continuations
+  let shiftDays = 0; // accumulated shift in workdays
+  for(let ci = 1; ci < chainDates.length; ci++){
+    const date = chainDates[ci];
+    const entries = byDate[date]||[];
+    if(!entries.length) continue;
+
+    // How many hours are used on this date by continuations from earlier dates?
+    const usedByConts = calcContHoursOnDate(eq, date, byDate, chainDates.slice(0, ci));
+    const cap = workdayHours(date, eq);
+    
+    if(usedByConts >= cap){
+      // No room for new processes on this date → they need to shift
+      shiftDays++;
+      const newDate = nextWorkday(date, shiftDays, eq);
+      for(const entry of entries){
+        shifts.push({entry, fromDate:date, toDate:newDate, eq});
+      }
+    }
+  }
+
+  return shifts;
+}
+
+// Calculate how many hours continuations from previous entries use on a given date
+function calcContHoursOnDate(eq, date, byDate, prevDates){
+  let used = 0;
+  for(const pd of prevDates){
+    const entries = byDate[pd]||[];
+    for(const entry of entries){
+      if(!entry.horas) continue;
+      // Compute how many hours this entry spills into 'date'
+      const startDateD = new Date(pd+'T00:00:00');
+      const targetDateD = new Date(date+'T00:00:00');
+      let rem = entry.horas;
+      let d = new Date(startDateD);
+      const dk2 = (dt)=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
+      // Consume days until we reach target date
+      while(rem > 0){
+        const kk = dk2(d);
+        if(!isWorkday(kk, eq)){ d.setDate(d.getDate()+1); continue; }
+        const cap = workdayHours(kk, eq);
+        if(kk === date){ used += Math.min(rem, cap); break; }
+        rem -= cap;
+        d.setDate(d.getDate()+1);
+      }
+    }
+  }
+  return used;
+}
+
+// Get the next workday N days after a date for a given equip
+function nextWorkday(dateStr, n, eq){
+  const d = new Date(dateStr+'T00:00:00');
+  let count = 0;
+  d.setDate(d.getDate()+1);
+  const dk2=(dt)=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
+  while(count < n){
+    if(isWorkday(dk2(d), eq)) count++;
+    if(count < n) d.setDate(d.getDate()+1);
+  }
+  return dk2(d);
+}
+
+// Show confirmation dialog for cascade shifts
+function showCascadeConfirm(shifts, eq){
+  const lines = shifts.map(s=>`• "${s.entry.nombre}" (L${s.entry.lote||'?'}): ${dispDate(s.fromDate)} → ${dispDate(s.toDate)}`);
+  const msg = 'Al mover este proceso, '+shifts.length+' proceso'+(shifts.length>1?'s':'')+' del equipo '+eq+' necesitan desplazarse:\n\n'+lines.join('\n')+'\n\n¿Aplicar el desplazamiento en cascada?';
+  if(confirm(msg)){
+    pushUndo();
+    for(const {entry, fromDate, toDate} of shifts){
+      // Move entry from fromDate to toDate
+      const arr = grid[eq][fromDate];
+      if(!arr) continue;
+      const idx = arr.indexOf(entry);
+      if(idx<0) continue;
+      arr.splice(idx,1);
+      if(!arr.length) delete grid[eq][fromDate];
+      if(!grid[eq][toDate]) grid[eq][toDate]=[];
+      grid[eq][toDate].push(entry);
+      log('CASCADE SHIFT',`"${entry.nombre}" ${eq} ${dispDate(fromDate)}→${dispDate(toDate)}`);
+    }
+    markChg(); renderGantt();
+    toast(`↕ ${shifts.length} proceso${shifts.length>1?'s':''} desplazados en cascada`);
+  } else {
+    markChg(); renderGantt();
+  }
+}
+
 // ════════════ SCROLL TO PROCESS ════════════
 function scrollToProcess(eq, date, idx){
   // Close deadline panel
@@ -4391,85 +4655,159 @@ async function gSaveNow(){
   gSaving=true;
   gSetStatus('saving','Guardando en Drive…');
   try{
-    // Default column definitions
-    const COL_MAP = {
-      'equipo':     (eq,date,e)=>eq||'',
-      'fecha':      (eq,date,e)=>date||'',
-      'id':         (eq,date,e)=>e.id||'',
-      'nombre':     (eq,date,e)=>e.nombre||'',
-      'producto':   (eq,date,e)=>e.nombre||'',
-      'código':     (eq,date,e)=>e.codigo||'',
-      'codigo':     (eq,date,e)=>e.codigo||'',
-      'lote':       (eq,date,e)=>e.lote||'',
-      'cantidad':   (eq,date,e)=>e.cantidad||'',
-      'u.m.':       (eq,date,e)=>e.unidad||'',
-      'unidad':     (eq,date,e)=>e.unidad||'',
-      'estado':     (eq,date,e)=>stLabel(e.estado)||'',
-      'horas':      (eq,date,e)=>e.horas||'',
-      'formato':    (eq,date,e)=>e.formato||'',
-      'f.límite':   (eq,date,e)=>e.fechaLimite||'',
-      'f.limite':   (eq,date,e)=>e.fechaLimite||'',
-      'límite excedido':(eq,date,e)=>(e.fechaLimite&&new Date(e.fechaLimite+'T00:00:00')<new Date((date||'9999')+'T00:00:00')?'SÍ':''),
-      'limite excedido':(eq,date,e)=>(e.fechaLimite&&new Date(e.fechaLimite+'T00:00:00')<new Date((date||'9999')+'T00:00:00')?'SÍ':''),
-      'faltante':   (eq,date,e)=>e.faltante||'',
-      'deps.':      (eq,date,e)=>(e.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';'),
-      'deps':       (eq,date,e)=>(e.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';'),
-      'obs.':       (eq,date,e)=>e.obs||'',
-      'obs':        (eq,date,e)=>e.obs||'',
-    };
-    const DEFAULT_HDRS=['Equipo','Fecha','ID','Nombre','Código','Lote','Cantidad','U.M.','Estado','Horas','Formato','F.Límite','Límite Excedido','Faltante','Deps.','Obs.'];
-    // Use stored column order if available, else default
-    const hdrs = gSheetColOrder || DEFAULT_HDRS;
-    const hdrsLow = hdrs.map(h=>h.toLowerCase());
+    // Read current Sheet to know existing rows and structure
+    const sheetData = await gApiRequest('GET',
+      `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}/values/Planificacion!A1:ZZ20000`
+    );
+    const rows = sheetData.values||[];
+    if(!rows.length){ toast('Sheet vacío — recargá primero'); gSaving=false; return; }
 
-    function buildRow(eq, date, e){
-      return hdrs.map((h,i)=>{
-        const fn = COL_MAP[hdrsLow[i]];
-        return fn ? fn(eq,date,e) : ''; // unknown cols → empty
-      });
+    const hdrs = rows[0].map(h=>String(h||'').trim().toLowerCase());
+    const iE=hdrs.findIndex(h=>h==='equipo');
+    const iD=hdrs.findIndex(h=>h==='fecha');
+    const iID=hdrs.findIndex(h=>h==='id');
+    const iFL=hdrs.findIndex(h=>h.includes('límite')||h.includes('limite'));
+    const iSt=hdrs.findIndex(h=>h==='estado');
+    const iPos=hdrs.findIndex(h=>h==='pos.'||h==='pos'||h==='posición'||h==='posicion'||h==='orden');
+    const iObsG=hdrs.findIndex(h=>h==='obs.'||h==='obs');
+    const iFAG=hdrs.findIndex(h=>h==='faltante');
+    const iDepsG=hdrs.findIndex(h=>h==='deps.'||h==='deps');
+
+    // Build map of existing rows by ID
+    const rowByID = {}; // id → rowIndex (0-based in rows array, so Sheet row = rowIndex+1)
+    for(let i=1;i<rows.length;i++){
+      const id = iID>=0 ? String(rows[i][iID]||'').trim() : '';
+      if(id) rowByID[id] = i;
     }
 
-    const rows=[hdrs];
+    // Collect all current entries with their positions
+    const updates = []; // {range, values}
+    const newRows = []; // entries not yet in Sheet (need to append)
+
+    // Assign positions within each equipo+date group
     for(const eq of eqs){
-      for(const [date,entries] of Object.entries(grid[eq]||{})){
-        for(const e of (entries||[])) rows.push(buildRow(eq,date,e));
+      for(const [date, entries] of Object.entries(grid[eq]||{})){
+        entries.forEach((entry, posIdx) => {
+          entry._pos = posIdx + 1; // 1-based position
+          const rowIdx = rowByID[entry.id];
+          if(rowIdx !== undefined){
+            // Update existing row: Equipo, Fecha, Estado, F.Límite, Pos.
+            // Find obs and faltante column indices
+
+            if(iE>=0) updates.push({r:rowIdx+1, c:iE+1, v:eq});
+            if(iD>=0) updates.push({r:rowIdx+1, c:iD+1, v:date});
+            if(iSt>=0) updates.push({r:rowIdx+1, c:iSt+1, v:stLabel(entry.estado)});
+            if(iFL>=0) updates.push({r:rowIdx+1, c:iFL+1, v:entry.fechaLimite||''});
+            if(iPos>=0) updates.push({r:rowIdx+1, c:iPos+1, v:posIdx+1});
+            if(iObsG>=0) updates.push({r:rowIdx+1, c:iObsG+1, v:entry.obs||''});
+            if(iFAG>=0) updates.push({r:rowIdx+1, c:iFAG+1, v:entry.faltante||''});
+            if(iDepsG>=0) updates.push({r:rowIdx+1, c:iDepsG+1, v:(entry.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';')});
+          } else {
+            // New entry — needs to be appended
+            newRows.push({entry, eq, date, pos:posIdx+1});
+          }
+        });
       }
     }
-    // Backlog rows
-    for(const e of backlog) rows.push(buildRow('','',e));
-    // Calendario rows
-    const calHdrs=['Fecha','Tipo','Descripcion','Equipos','Horas'];
-    const calRows=[calHdrs];
+    // Backlog entries — clear equipo/fecha if they exist in Sheet
+    for(const entry of backlog){
+      const rowIdx = rowByID[entry.id];
+      if(rowIdx !== undefined){
+
+        if(iE>=0) updates.push({r:rowIdx+1, c:iE+1, v:''});
+        if(iD>=0) updates.push({r:rowIdx+1, c:iD+1, v:''});
+        if(iSt>=0) updates.push({r:rowIdx+1, c:iSt+1, v:stLabel(entry.estado)});
+        if(iFL>=0) updates.push({r:rowIdx+1, c:iFL+1, v:entry.fechaLimite||''});
+        if(iPos>=0) updates.push({r:rowIdx+1, c:iPos+1, v:''});
+        if(iObsG>=0) updates.push({r:rowIdx+1, c:iObsG+1, v:entry.obs||''});
+        if(iFAG>=0) updates.push({r:rowIdx+1, c:iFAG+1, v:entry.faltante||''});
+        if(iDepsG>=0) updates.push({r:rowIdx+1, c:iDepsG+1, v:(entry.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';')});
+      }
+    }
+
+    // Execute cell updates in batch
+    if(updates.length){
+      const data = updates.map(u=>({
+        range: `Planificacion!${colLetter(u.c)}${u.r}`,
+        values: [[u.v]]
+      }));
+      await gApiRequest('POST',
+        `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}/values:batchUpdate?valueInputOption=RAW`,
+        { data, valueInputOption:'RAW' }
+      );
+    }
+
+    // Append new entries at bottom
+    if(newRows.length){
+      const DEFAULT_HDRS=['Equipo','Fecha','ID','Nombre','Código','Lote','Cantidad','U.M.','Estado','Horas','Formato','F.Límite','Límite Excedido','Faltante','Pos.','Deps.','Obs.'];
+      const appendHdrs = gSheetColOrder || DEFAULT_HDRS;
+      const appendHdrsLow = appendHdrs.map(h=>h.toLowerCase());
+      const COL_MAP = {
+        'equipo':    (eq,date,e,pos)=>eq||'',
+        'fecha':     (eq,date,e,pos)=>date||'',
+        'id':        (eq,date,e,pos)=>e.id||'',
+        'nombre':    (eq,date,e,pos)=>e.nombre||'',
+        'producto':  (eq,date,e,pos)=>e.nombre||'',
+        'código':    (eq,date,e,pos)=>e.codigo||'',
+        'codigo':    (eq,date,e,pos)=>e.codigo||'',
+        'lote':      (eq,date,e,pos)=>e.lote||'',
+        'cantidad':  (eq,date,e,pos)=>e.cantidad||'',
+        'u.m.':      (eq,date,e,pos)=>e.unidad||'',
+        'unidad':    (eq,date,e,pos)=>e.unidad||'',
+        'estado':    (eq,date,e,pos)=>stLabel(e.estado)||'',
+        'horas':     (eq,date,e,pos)=>e.horas||'',
+        'formato':   (eq,date,e,pos)=>e.formato||'',
+        'f.límite':  (eq,date,e,pos)=>e.fechaLimite||'',
+        'f.limite':  (eq,date,e,pos)=>e.fechaLimite||'',
+        'límite excedido':(eq,date,e,pos)=>'',
+        'limite excedido':(eq,date,e,pos)=>'',
+        'faltante':  (eq,date,e,pos)=>e.faltante||'',
+        'pos.':      (eq,date,e,pos)=>pos||'',
+        'pos':       (eq,date,e,pos)=>pos||'',
+        'posición':  (eq,date,e,pos)=>pos||'',
+        'posicion':  (eq,date,e,pos)=>pos||'',
+        'orden':     (eq,date,e,pos)=>pos||'',
+        'deps.':     (eq,date,e,pos)=>(e.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';'),
+        'deps':      (eq,date,e,pos)=>(e.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';'),
+        'obs.':      (eq,date,e,pos)=>e.obs||'',
+        'obs':       (eq,date,e,pos)=>e.obs||'',
+      };
+      const appendData = newRows.map(({entry,eq,date,pos})=>
+        appendHdrs.map((h,i)=>{ const fn=COL_MAP[appendHdrsLow[i]]; return fn?fn(eq,date,entry,pos):''; })
+      );
+      await gApiRequest('POST',
+        `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}/values/Planificacion!A1:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+        { values: appendData }
+      );
+    }
+
+    // Update Calendario sheet
+    await gEnsureSheet('Calendario');
+    const calRows=[['Fecha','Tipo','Descripcion','Equipos','Horas']];
     for(const d of [...holidays].sort()) calRows.push([d,'feriado','','','']);
     for(const [d,v] of [...enabledSats.entries()].sort()) calRows.push([d,'sabado_habilitado',v.desc||'',(v.equipos||[]).join(','),v.horas||7]);
     for(const [d,v] of [...tripleShifts.entries()].sort()) calRows.push([d,'triple_turno',v.desc||'',(v.equipos||[]).join(','),v.horas||24]);
-
-    // Write Planificacion sheet
-    await gApiRequest('PUT',
-      `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}/values/Planificacion!A1?valueInputOption=RAW&includeValuesInResponse=false`,
-      { values: rows }
+    await gApiRequest('POST',
+      `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}/values:batchClear`,
+      { ranges: ['Calendario!A1:F2000'] }
     );
-    // Write Calendario sheet (ensure it exists first)
-    await gEnsureSheet('Calendario');
-    await gApiRequest('PUT',
-      `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}/values/Calendario!A1?valueInputOption=RAW&includeValuesInResponse=false`,
-      { values: calRows }
+    await gApiRequest('POST',
+      `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}/values:batchUpdate?valueInputOption=RAW`,
+      { data: [{ range:'Calendario!A1', values:calRows }], valueInputOption:'RAW' }
     );
 
-    // Fetch real version from Drive after save (to anchor polling baseline)
+    // Get updated modifiedTime
     try{
       const meta = await gApiRequest('GET',
         `https://www.googleapis.com/drive/v3/files/${gSheetId}?fields=version,modifiedTime,lastModifyingUser`
       );
       gLastVersion = meta.version;
       gLastModified = meta.modifiedTime;
-    } catch(e){
-      gLastVersion = null;
-      gLastModified = new Date().toISOString();
-    }
+    } catch(e){ gLastModified = new Date().toISOString(); }
+
     gSaving=false;
     gSetStatus('ok','☁ '+gSheetName+' — guardado '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
-    log('DRIVE SAVE','Guardado en Google Sheets: '+gSheetName);
+    log('DRIVE SAVE','Guardado en Google Sheets ('+updates.length+' celdas, '+newRows.length+' filas nuevas)');
   } catch(err){
     gSaving=false;
     gSetStatus('err','Error al guardar: '+err.message);
@@ -4477,6 +4815,14 @@ async function gSaveNow(){
     console.error(err);
   }
 }
+
+// Convert column number (1-based) to letter (A, B, ... Z, AA, ...)
+function colLetter(n){
+  let s='';
+  while(n>0){ s=String.fromCharCode(64+(n%26||26))+s; n=Math.floor((n-1)/26); }
+  return s;
+}
+
 
 async function gEnsureSheet(sheetTitle){
   // Check if sheet exists; if not, add it
@@ -4532,16 +4878,24 @@ async function gReloadFromSheet(){
       const get=(idx)=>idx>=0?String(r[idx]||'').trim():'';
       const eq=get(iE), dt=get(iD), nb=get(iN);
       if(!nb) continue;
+      // Skip entries with no quantity (cantidad = 0 or empty) — point 3
+      const cantRaw=get(iQ);
+      if(cantRaw===''||cantRaw==='0') continue;
       const savedId=get(iID);
       const depsStr=get(iDp);
+      // Find Pos. column
+      const iPOS=hdrs.findIndex(h=>h==='pos.'||h==='pos'||h==='posición'||h==='posicion'||h==='orden');
+      const savedPos=iPOS>=0?parseInt(get(iPOS))||0:0;
       const entry={
         id: savedId||genId(),
         nombre:nb, codigo:get(iC), lote:get(iL),
-        cantidad:get(iQ), unidad:get(iU),
+        cantidad:cantRaw, unidad:get(iU),
         estado:csvEstadoToCode(get(iSt))||'p',
         horas:parseFloat(get(iH))||0,
         formato:get(iFm), fechaLimite:get(iFL),
         faltante:get(iFA), obs:get(iO), deps:[],
+        _rowNum: i+1,  // 1-based row number in Sheet (row 1 = headers)
+        _pos: savedPos, // position within equipo+date group
       };
       ingestEntryOptions(entry);
       if(!eq||!dt){
@@ -4557,6 +4911,12 @@ async function gReloadFromSheet(){
       }
     }
 
+    // Sort each cell by _pos to restore user-defined order
+    for(const eq of Object.keys(ng)){
+      for(const dt of Object.keys(ng[eq])){
+        ng[eq][dt].sort((a,b)=>(a._pos||0)-(b._pos||0));
+      }
+    }
     // Merge with existing eqs list to preserve equip order
     const allEqs=[...new Set([...eqs,...neqs])];
     eqs=allEqs.filter(e=>neqs.includes(e)||ng[e]);
@@ -4594,7 +4954,7 @@ async function gReloadFromSheet(){
       );
       const calRows = calResp.values||[];
       if(calRows.length>1){
-        holidays.clear(); enabledSats.clear(); tripleShifts.clear();
+        holidays.clear(); enabledSats.clear(); tripleShifts.clear(); reducedShifts.clear();
         const calHdrs=calRows[0].map(h=>String(h).trim().toLowerCase());
         const calObjs=calRows.slice(1).map(r=>{const o={};calHdrs.forEach((h,i)=>o[h]=r[i]||'');return o;});
         parseCalRows(calObjs);
