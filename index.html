@@ -1618,7 +1618,8 @@ function renderGantt(){
       const entries=(grid[eq]&&grid[eq][key])||[];
       for(const entry of entries){
         const h=entry.horas||0;
-        if(h<=15) continue;
+        const day1WorkCap = workdayHours(key, eq);
+        if(h<=day1WorkCap) continue; // fits entirely in one day
         const span=computeSpan(key,h,planDates,eq);
         if(span<=1) continue;
         const startIdx=planDates.findIndex(d=>d.key===key);
