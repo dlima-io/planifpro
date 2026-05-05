@@ -1193,6 +1193,9 @@ function workdayHours(dateStr, equip){
   return 15;
 }
 
+// Continuation chips (built during renderGantt, used by buildChips)
+let continuations = {};
+
 // Drag state — custom implementation (no HTML5 drag API)
 let drag = null;
 
@@ -1610,7 +1613,7 @@ function renderGantt(){
   let bH='';
   for(const eq of visEqs){
     // Build a map of continuation chips: dateKey -> [{entry, srcDate, dayNum, totalDays, horasThisDay}]
-    const continuations={}; // key -> array of continuation info
+    continuations={}; // reset for this render
     for(const {key} of planDates){
       const entries=(grid[eq]&&grid[eq][key])||[];
       for(const entry of entries){
