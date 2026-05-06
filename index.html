@@ -1613,7 +1613,8 @@ function renderGantt(){
   let bH='';
   for(const eq of visEqs){
     // Build a map of continuation chips: dateKey -> [{entry, srcDate, dayNum, totalDays, horasThisDay}]
-    continuations={}; // reset for this render
+    const eqConts={}; // local per-equip continuations
+    continuations=eqConts; // expose globally for debug
     for(const {key} of planDates){
       const entries=(grid[eq]&&grid[eq][key])||[];
       for(const entry of entries){
@@ -1621,7 +1622,7 @@ function renderGantt(){
         if(h>=50) console.log('[CONT] Processing',entry.nombre,'h='+h,'key='+key,'eq='+eq);
         // Check if this process fits entirely in its start day
         // considering hours already used by prior continuations
-        const alreadyUsedForSkip = (continuations[key]||[])
+        const alreadyUsedForSkip = (eqConts[key]||[])
           .filter(ct=>ct.entry!==entry)
           .reduce((s,ct)=>s+ct.horasThisDay, 0);
         const availableDay1 = Math.max(0, workdayHours(key, eq) - alreadyUsedForSkip);
@@ -1650,11 +1651,11 @@ function renderGantt(){
           const cap=workdayHours(fk,eq);
           const horasThisDay=Math.min(remaining, cap);
           if(h>=50) console.log('[CONT] push to',fk,'horasThisDay='+horasThisDay+'h remaining before='+remaining);
-          if(!continuations[fk]) continuations[fk]=[];
-          continuations[fk].push({entry, srcDate:key, dayNum, totalDays:span, horasThisDay});
+          if(!eqConts[fk]) eqConts[fk]=[];
+          eqConts[fk].push({entry, srcDate:key, dayNum, totalDays:span, horasThisDay});
           remaining-=horasThisDay; // use horasThisDay not full cap
         }
-        if(h>=50) console.log('[CONT] done, continuations keys:', Object.keys(continuations));
+        if(h>=50) console.log('[CONT] done, eqConts keys:', Object.keys(eqConts));
       }
     }
 
@@ -1668,7 +1669,7 @@ function renderGantt(){
       const isPastCell=key<todK;
       const isReducedCell=reducedShifts.has(key)&&(()=>{const rs=reducedShifts.get(key);return !rs.equipos||!rs.equipos.length||rs.equipos.includes(eq);})();
       const entries=(grid[eq]&&grid[eq][key])||[];
-      const conts=continuations[key]||[];
+      const conts=eqConts[key]||[];
 
       // Daily load = horas from owned entries (full day 1: 15h each if >15) + continuation horas
       const cap=workdayHours(key,eq);
@@ -1729,7 +1730,7 @@ function buildChips(eq,key,entries){
     if(hasDeps) tipParts.push('🔗 '+e.deps.length+' dep'+(e.deps.length>1?'s':''));
 
     // Calculate hours already used by continuations on this day (from other processes)
-    const contOnDay=(continuations&&continuations[key])||[];
+    const contOnDay=(typeof eqConts!=='undefined'?eqConts[key]:continuations[key])||[];
     const alreadyUsed=contOnDay.filter(ct=>ct.entry!==e).reduce((s,ct)=>s+ct.horasThisDay,0);
     const fmtBg=(formatMode&&e.formato&&formatEquips.has(eq))?`background:${getFormatColor(e.formato)}!important;`:'';
     h+=`<div class="chip ${stC} ${isHi?'dep-hi':''} ${isSrc?'dep-src':''} ${isSel?'sel':''} ${fmtBg?'fmt-hi':''}"
