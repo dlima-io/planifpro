@@ -1618,16 +1618,19 @@ function renderGantt(){
       const entries=(grid[eq]&&grid[eq][key])||[];
       for(const entry of entries){
         const h=entry.horas||0;
-        const day1WorkCap = workdayHours(key, eq);
-        if(h<=day1WorkCap) continue; // fits entirely in one day
+        // Check if this process fits entirely in its start day
+        // considering hours already used by prior continuations
+        const alreadyUsedForSkip = (continuations[key]||[])
+          .filter(ct=>ct.entry!==entry)
+          .reduce((s,ct)=>s+ct.horasThisDay, 0);
+        const availableDay1 = Math.max(0, workdayHours(key, eq) - alreadyUsedForSkip);
+        if(h <= availableDay1) continue; // fits entirely — no continuation needed
         const span=computeSpan(key,h,planDates,eq);
         if(span<=1) continue;
         const startIdx=planDates.findIndex(d=>d.key===key);
         // Day 1: subtract what's already used by continuations from other processes
-        const alreadyUsedOnDay1 = (continuations[key]||[])
-          .filter(ct=>ct.entry!==entry) // exclude this entry's own continuations
-          .reduce((s,ct)=>s+ct.horasThisDay, 0);
-        const day1Cap = Math.max(0, workdayHours(key,eq) - alreadyUsedOnDay1);
+        const alreadyUsedOnDay1 = alreadyUsedForSkip; // already computed above
+        const day1Cap = availableDay1; // already computed above
         let remaining = h - day1Cap;
         let dayNum=1;
         for(let si=1;si<planDates.length&&remaining>0;si++){
