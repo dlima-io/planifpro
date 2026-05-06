@@ -1645,7 +1645,7 @@ function renderGantt(){
           const horasThisDay=Math.min(remaining, cap);
           if(!continuations[fk]) continuations[fk]=[];
           continuations[fk].push({entry, srcDate:key, dayNum, totalDays:span, horasThisDay});
-          remaining-=cap;
+          remaining-=horasThisDay; // use horasThisDay not full cap
         }
       }
     }
@@ -1670,11 +1670,13 @@ function renderGantt(){
       // Total cannot exceed cap
       const contLoad=conts.reduce((s,co)=>s+co.horasThisDay,0);
       const remainingAfterConts=Math.max(0,cap-contLoad);
-      const ownedLoad=entries.reduce((s,e)=>{
-        const h=e.horas||0;
-        // This process starts today — it consumes min(h, remainingAfterConts) on day 1
-        return s+Math.min(h,remainingAfterConts);
-      },0);
+      let ownedLoad=0, remCap=remainingAfterConts;
+      for(const e of entries){
+        if(remCap<=0) break;
+        const consume=Math.min(e.horas||0, remCap);
+        ownedLoad+=consume;
+        remCap-=consume;
+      }
       const cellLoad=Math.min(cap, contLoad+ownedLoad);
       const loadCls=cellLoad>=cap?'load-ov':cellLoad>cap*0.85?'load-hi':cellLoad>0?'load-ok':'';
       const loadLabel=cellLoad>0?Math.round(cellLoad*10)/10+'h':'';
@@ -2864,6 +2866,14 @@ function initDragDrop(){
             }
           }
         } else {
+          // Calculate drop position within destination cell
+          const destChips=[...td.querySelectorAll('.chip:not(.chip-cont)')];
+          let dropPos=destChips.length; // default: append
+          for(let ci=0;ci<destChips.length;ci++){
+            const r=destChips[ci].getBoundingClientRect();
+            if(ev.clientY<r.top+r.height/2){ dropPos=ci; break; }
+          }
+          drag._dropPos = dropPos;
           // If dragged chip is part of a selection, move all
           const dragKey=`${drag.equip}|${drag.date}|${drag.idx}`;
           if(sel.size>1 && sel.has(dragKey)){
@@ -2963,7 +2973,12 @@ function doMove(destEq, destDate){
   else grid[drag.equip][drag.date]=srcList;
   if(!grid[destEq]) grid[destEq]={};
   if(!grid[destEq][destDate]) grid[destEq][destDate]=[];
-  grid[destEq][destDate].push(removed);
+  // Insert at drop position if specified, otherwise append
+  if(typeof drag._dropPos === 'number'){
+    grid[destEq][destDate].splice(drag._dropPos, 0, removed);
+  } else {
+    grid[destEq][destDate].push(removed);
+  }
   updateDepRefs(drag.equip,drag.date,drag.idx,destEq,destDate,grid[destEq][destDate].length-1);
   log('MOVER',
     `"${drag.entry.nombre}" (${drag.entry.lote||'sin lote'})\n` +
