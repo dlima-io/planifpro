@@ -1633,10 +1633,14 @@ function renderGantt(){
         const day1Cap = availableDay1; // already computed above
         let remaining = h - day1Cap;
         let dayNum=1;
-        for(let si=1;si<planDates.length&&remaining>0;si++){
-          const futureDate=planDates[startIdx+si];
-          if(!futureDate) break;
-          const fk=futureDate.key;
+        // Use calendar-based iteration, not limited to planDates range
+        const _contDk=dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
+        const _contStart=new Date(key+'T00:00:00');
+        _contStart.setDate(_contStart.getDate()+1);
+        let _safety=0;
+        while(remaining>0 && _safety++<365){
+          const fk=_contDk(_contStart);
+          _contStart.setDate(_contStart.getDate()+1);
           // Skip non-workdays for this equip
           if(!isWorkday(fk, eq)) continue;
           dayNum++;
