@@ -4234,6 +4234,80 @@ function renderDlSection(){
 
 // ════════════ DEP CHAIN PANEL ════════════
 
+// ── CAPACITY HELPERS ─────────────────────────────────────────────
+
+// Fill dayUsed map with hours consumed by a process starting at startDate
+function fillDayUsed(dayUsed, startDate, horas, eq){
+  if(!horas) return;
+  let rem = horas;
+  let d = new Date(startDate+'T00:00:00');
+  const _dk = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
+  let safety = 0;
+  while(rem > 0 && safety++ < 365){
+    const k = _dk(d);
+    if(isWorkday(k, eq)){
+      const cap = workdayHours(k, eq);
+      const used = dayUsed[k]||0;
+      const available = Math.max(0, cap - used);
+      const consume = Math.min(rem, available);
+      dayUsed[k] = used + consume;
+      rem -= consume;
+    }
+    d.setDate(d.getDate()+1);
+  }
+}
+
+// Find the first workday on or after startDate where a process can start
+function findFirstAvailableDate(dayUsed, startDate, horas, eq){
+  let d = new Date(startDate+'T00:00:00');
+  const _dk = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
+  for(let i = 0; i < 365; i++){
+    const k = _dk(d);
+    if(isWorkday(k, eq)){
+      const cap = workdayHours(k, eq);
+      const used = dayUsed[k]||0;
+      if(used < cap) return k;
+    }
+    d.setDate(d.getDate()+1);
+  }
+  return startDate;
+}
+
+// Get the last workday a process occupies given start date and hours
+function getProcessEndDate(startDate, horas, eq){
+  if(!horas) return startDate;
+  let rem = horas;
+  let d = new Date(startDate+'T00:00:00');
+  const _dk = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
+  let lastDay = startDate;
+  let safety = 0;
+  while(rem > 0 && safety++ < 365){
+    const k = _dk(d);
+    if(isWorkday(k, eq)){
+      lastDay = k;
+      rem -= workdayHours(k, eq);
+    }
+    if(rem > 0) d.setDate(d.getDate()+1);
+  }
+  return lastDay;
+}
+
+// Count workdays strictly between two dates (0 = consecutive workdays)
+function countWorkdaysBetween(startDate, endDate, eq){
+  if(startDate >= endDate) return 0;
+  let count = 0;
+  let d = new Date(startDate+'T00:00:00');
+  d.setDate(d.getDate()+1);
+  const _dk = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
+  const end = new Date(endDate+'T00:00:00');
+  while(d < end){
+    if(isWorkday(_dk(d), eq)) count++;
+    d.setDate(d.getDate()+1);
+    if(count > 10) break;
+  }
+  return count;
+}
+
 // ════════════ CASCADE SHIFT ════════════
 
 // Core scheduling function: given all processes in an equip in their
