@@ -1619,7 +1619,7 @@ function renderGantt(){
       const entries=(grid[eq]&&grid[eq][key])||[];
       for(const entry of entries){
         const h=entry.horas||0;
-        if(h>=50) console.log('[CONT] Processing',entry.nombre,'h='+h,'key='+key,'eq='+eq);
+
         // Check if this process fits entirely in its start day
         // considering hours already used by prior continuations
         const alreadyUsedForSkip = (eqConts[key]||[])
@@ -1627,7 +1627,7 @@ function renderGantt(){
           .reduce((s,ct)=>s+ct.horasThisDay, 0);
         const availableDay1 = Math.max(0, workdayHours(key, eq) - alreadyUsedForSkip);
         if(h <= availableDay1) continue; // fits entirely — no continuation needed
-        const span=computeSpan(key,h,planDates,eq);
+        const span=computeSpan(key,h,planDates,eq,alreadyUsedForSkip);
         if(span<=1) continue;
         const startIdx=planDates.findIndex(d=>d.key===key);
         // Day 1: subtract what's already used by continuations from other processes
@@ -1640,7 +1640,7 @@ function renderGantt(){
         const _contStart=new Date(key+'T00:00:00');
         _contStart.setDate(_contStart.getDate()+1);
         let _safety=0;
-        if(h>=50) console.log('[CONT] day1Cap='+day1Cap+' remaining='+remaining+' span='+span);
+
         while(remaining>0 && _safety++<365){
           const fk=_contDk(_contStart);
           _contStart.setDate(_contStart.getDate()+1);
@@ -1650,12 +1650,12 @@ function renderGantt(){
           // Hours consumed THIS day = min(remaining, cap)
           const cap=workdayHours(fk,eq);
           const horasThisDay=Math.min(remaining, cap);
-          if(h>=50) console.log('[CONT] push to',fk,'horasThisDay='+horasThisDay+'h remaining before='+remaining);
+
           if(!eqConts[fk]) eqConts[fk]=[];
           eqConts[fk].push({entry, srcDate:key, dayNum, totalDays:span, horasThisDay});
           remaining-=horasThisDay; // use horasThisDay not full cap
         }
-        if(h>=50) console.log('[CONT] done, eqConts keys:', Object.keys(eqConts));
+
       }
     }
 
