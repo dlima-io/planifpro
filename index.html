@@ -2969,13 +2969,9 @@ function doMove(destEq, destDate){
   );
   // If primera etapa moved, recalculate deadlines for entire chain
   checkAndPropagateDeadline(drag.entry, destDate);
-  // Check if cascade shift is needed for consecutive processes
-  const cascadeResult = checkCascadeShift(destEq, destDate);
-  if(cascadeResult && cascadeResult.length > 0){
-    showCascadeConfirm(cascadeResult, destEq);
-  } else {
-    markChg(); renderGantt();
-  }
+  // Apply cascade for any real collisions in the destination equip
+  checkAndApplyCascade(destEq, destDate);
+  markChg(); renderGantt();
   toast('Movido → '+destEq+' · '+dispDate(destDate));
 }
 
@@ -3835,9 +3831,9 @@ function addCalEntry(){
     const allAffected=calEqs.length===0?eqs:calEqs;
     for(const eq of allAffected){
       if(!grid[eq]||(Object.keys(grid[eq]).length===0)) continue;
-      const cascadeResult=checkCascadeShift(eq,affectedDate);
-      if(cascadeResult&&cascadeResult.length>0){
-        showCascadeConfirm(cascadeResult,eq);
+      const shifts=scheduleQueue(eq, affectedDate);
+      if(shifts.length>0){
+        showCascadeConfirm(shifts, eq);
         break; // one dialog at a time
       }
     }
@@ -4237,162 +4233,94 @@ function renderDlSection(){
 
 // ════════════ CASCADE SHIFT ════════════
 
-// After a move on equip, find all processes that need to shift
-// to avoid overlapping with continuations of previous processes.
-// Returns array of {entry, fromDate, toDate} or []
-function checkCascadeShift(eq, movedDate){
-  // Collect all processes in this equip sorted by date then position
+// Core scheduling function: given all processes in an equip in their
+// current order, find which ones need to move due to capacity constraints.
+// Returns array of {entry, fromDate, toDate} — processes that must shift.
+// Only processes at or after fromDate are considered.
+function scheduleQueue(eq, fromDate){
+  // Collect all processes sorted by date then position
   const all = [];
   for(const [date, entries] of Object.entries(grid[eq]||{})){
     entries.forEach((e,i)=>all.push({entry:e, date, pos:i}));
   }
   all.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:a.pos-b.pos);
-  if(all.length<2) return [];
+  if(!all.length) return [];
 
-  // Find where the moved process is in the sorted list
-  const movedIdx = all.findIndex(x=>x.date===movedDate);
-  if(movedIdx<0) return [];
-
-  // Simulate forward from the moved process
-  // Track: for each workday, how many hours are consumed
-  const dayUsed = {}; // dateStr → hours used
-
-  // Pre-fill hours used by processes BEFORE the moved one
-  for(let i=0;i<movedIdx;i++){
-    const {entry, date} = all[i];
-    fillDayUsed(dayUsed, date, entry.horas||0, eq);
+  // Build dayUsed from processes BEFORE fromDate — they are fixed
+  const dayUsed = {};
+  for(const {entry, date} of all){
+    if(date < fromDate) fillDayUsed(dayUsed, date, entry.horas||0, eq);
   }
 
   const shifts = [];
+  let prevEndDate = null; // end date of last processed entry
 
-  // Now process from movedIdx onwards
-  for(let i=movedIdx;i<all.length;i++){
-    const {entry, date:origDate} = all[i];
-    const h = entry.horas||0;
+  for(const {entry, date:origDate} of all){
+    if(origDate < fromDate){
+      prevEndDate = getProcessEndDate(origDate, entry.horas||0, eq);
+      continue;
+    }
 
-    // Find the first available date where this process can start
-    // (considering hours already used by previous processes)
-    const bestDate = findFirstAvailableDate(dayUsed, origDate, h, eq, all, i);
+    // Find first available date for this process (on or after origDate)
+    const bestDate = findFirstAvailableDate(dayUsed, origDate, entry.horas||0, eq);
 
-    if(bestDate !== origDate){
-      // Check if this date is "consecutive" with the previous chain
-      // Stop cascade if there's a gap > 3 calendar days
-      if(i > movedIdx){
-        // Stop cascade if there's a gap of more than 1 workday between
-        // the end of the previous process and the start of this one
-        const prevEntry = all[i-1].entry;
-        const prevDate = all[i-1].date;
-        const prevEndDate = getProcessEndDate(prevDate, prevEntry.horas||0, eq);
-        const workdayGap = countWorkdaysBetween(prevEndDate, origDate, eq);
-        if(workdayGap > 1) break; // not consecutive — stop cascade
-      }
+    // Only shift if:
+    // 1. bestDate differs from origDate (collision), OR
+    // 2. this process must shift because prevEndDate overlaps origDate
+    const needsShift = bestDate !== origDate;
+
+    // Check gap: if there's more than 1 workday gap between prev end and this start,
+    // stop cascading — processes beyond the gap are independent
+    if(prevEndDate && shifts.length > 0){
+      const gap = countWorkdaysBetween(prevEndDate, origDate, eq);
+      if(gap > 1) break;
+    }
+
+    if(needsShift){
       shifts.push({entry, fromDate:origDate, toDate:bestDate, eq});
     }
 
-    // Fill dayUsed with this process's hours (using bestDate or origDate)
-    fillDayUsed(dayUsed, bestDate||origDate, h, eq);
+    fillDayUsed(dayUsed, needsShift ? bestDate : origDate, entry.horas||0, eq);
+    prevEndDate = getProcessEndDate(needsShift ? bestDate : origDate, entry.horas||0, eq);
   }
 
   return shifts;
 }
 
-// Get the last day a process occupies given its start date and hours
-function getProcessEndDate(startDate, horas, eq){
-  if(!horas) return startDate;
-  let rem = horas;
-  let d = new Date(startDate+'T00:00:00');
-  const dk2 = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
-  let lastDay = startDate;
-  let safety = 0;
-  while(rem > 0 && safety++ < 365){
-    const k = dk2(d);
-    if(isWorkday(k, eq)){
-      lastDay = k;
-      rem -= workdayHours(k, eq);
-    }
-    if(rem > 0) d.setDate(d.getDate()+1);
-  }
-  return lastDay;
-}
-
-// Count workdays between two dates (exclusive of start, inclusive of end)
-// Returns 0 if endDate is the next workday after startDate
-function countWorkdaysBetween(startDate, endDate, eq){
-  if(startDate >= endDate) return 0;
-  let count = 0;
-  let d = new Date(startDate+'T00:00:00');
-  d.setDate(d.getDate()+1);
-  const dk2 = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
-  const end = new Date(endDate+'T00:00:00');
-  while(d < end){
-    if(isWorkday(dk2(d), eq)) count++;
-    d.setDate(d.getDate()+1);
-    if(count > 10) break; // no need to count further
-  }
-  return count;
-}
-
-// Fill dayUsed map with hours consumed by a process starting at startDate
-function fillDayUsed(dayUsed, startDate, horas, eq){
-  if(!horas) return;
-  let rem = horas;
-  let d = new Date(startDate+'T00:00:00');
-  const dk2 = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
-  while(rem>0){
-    const k=dk2(d);
-    if(isWorkday(k,eq)){
-      const cap=workdayHours(k,eq);
-      const used=dayUsed[k]||0;
-      const available=Math.max(0,cap-used);
-      const consume=Math.min(rem,available);
-      dayUsed[k]=(used+consume);
-      rem-=consume;
-      if(rem>0 && available===0){ /* day full, just move on */ }
-    }
-    d.setDate(d.getDate()+1);
-    // Safety limit
-    if(d.getFullYear()>2030) break;
+// Apply cascade shifts silently (no confirm dialog — only real collisions)
+function applyCascadeShifts(shifts, eq){
+  if(!shifts.length) return;
+  pushUndo();
+  for(const {entry, fromDate, toDate} of shifts){
+    const arr = grid[eq]?.[fromDate];
+    if(!arr) continue;
+    const idx = arr.indexOf(entry);
+    if(idx < 0) continue;
+    arr.splice(idx, 1);
+    if(!arr.length) delete grid[eq][fromDate];
+    if(!grid[eq][toDate]) grid[eq][toDate] = [];
+    grid[eq][toDate].push(entry);
+    log('CASCADE', `"${entry.nombre}" ${eq}: ${dispDate(fromDate)} → ${dispDate(toDate)}`);
   }
 }
 
-// Find the first workday on or after startDate where horas can begin
-// given dayUsed map (returns the actual start date)
-function findFirstAvailableDate(dayUsed, startDate, horas, eq, all, idx){
-  let d = new Date(startDate+'T00:00:00');
-  const dk2 = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
-  // Try startDate first — if there's any room, it can start there
-  for(let attempt=0;attempt<365;attempt++){
-    const k=dk2(d);
-    if(isWorkday(k,eq)){
-      const cap=workdayHours(k,eq);
-      const used=dayUsed[k]||0;
-      if(used<cap) return k; // there's room to start
-    }
-    d.setDate(d.getDate()+1);
-  }
-  return startDate; // fallback
+// Called after any move on an equip — detect and apply real collisions only
+function checkAndApplyCascade(eq, fromDate){
+  const shifts = scheduleQueue(eq, fromDate);
+  if(!shifts.length) return false;
+  applyCascadeShifts(shifts, eq);
+  toast('↕ ' + shifts.length + ' proceso' + (shifts.length>1?'s':'') + ' reubicados por capacidad');
+  return true;
 }
 
-// Show confirmation dialog for cascade shifts
+// Helper: show cascade confirm (kept for calendar-triggered cascades where user should confirm)
 function showCascadeConfirm(shifts, eq){
-  const lines = shifts.map(s=>`• "${s.entry.nombre.slice(0,35)}" (L${s.entry.lote||'?'}): ${dispDate(s.fromDate)} → ${dispDate(s.toDate)}`);
-  const msg = 'Al mover este proceso, '+shifts.length+' proceso'+(shifts.length>1?'s':'')+' del equipo '+eq+' necesitan desplazarse:\n\n'+lines.join('\n')+'\n\n¿Aplicar el desplazamiento en cascada?';
+  const lines = shifts.map(s=>'• "'+s.entry.nombre.slice(0,35)+'" (L'+(s.entry.lote||'?')+'): '+dispDate(s.fromDate)+' → '+dispDate(s.toDate));
+  const msg = 'Al aplicar este cambio de calendario, '+shifts.length+' proceso'+(shifts.length>1?'s':'')+' del equipo '+eq+' necesitan desplazarse:\n\n'+lines.join('\n')+'\n\n¿Aplicar el desplazamiento?';
   if(confirm(msg)){
-    pushUndo();
-    // Apply shifts — process in order to avoid collisions
-    for(const {entry, fromDate, toDate} of shifts){
-      const arr = grid[eq]?.[fromDate];
-      if(!arr) continue;
-      const idx = arr.indexOf(entry);
-      if(idx<0) continue;
-      arr.splice(idx,1);
-      if(!arr.length) delete grid[eq][fromDate];
-      if(!grid[eq][toDate]) grid[eq][toDate]=[];
-      grid[eq][toDate].push(entry);
-      log('CASCADE SHIFT',`"${entry.nombre}" ${eq} ${dispDate(fromDate)}→${dispDate(toDate)}`);
-    }
+    applyCascadeShifts(shifts, eq);
     markChg(); renderGantt();
-    toast('↕ '+shifts.length+' proceso'+(shifts.length>1?'s':'')+' desplazados en cascada');
+    toast('↕ '+shifts.length+' proceso'+(shifts.length>1?'s':'')+' desplazados');
   } else {
     markChg(); renderGantt();
   }
