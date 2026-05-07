@@ -1364,8 +1364,25 @@ function loadFile(e){ procFile(e.target.files[0]); e.target.value=''; }
 function loadBomFile(e){
   const f=e.target.files[0]; if(!f) return;
   const r=new FileReader();
-  r.onload=ev=>{const c=tryBom(ev.target.result); if(c) toast('BOM: '+c+' productos'); else toast('No se reconoció como BOM'); };
-  r.readAsText(f,'utf-8'); e.target.value='';
+  r.onload=ev=>{
+    const cnt=tryBom(ev.target.result);
+    console.log('[BOM LOAD] tryBom returned:', cnt, 'bomData:', bomData.length);
+    if(cnt){
+      toast('BOM: '+cnt+' productos cargados');
+      // Update BOM button visual
+      const btn=document.getElementById('bomBtn');
+      if(btn) btn.style.background='var(--ok)';
+      // Persist
+      try{
+        localStorage.setItem('planifBom', JSON.stringify(bomData.slice(0,5000)));
+        localStorage.setItem('planifBomByProduct', JSON.stringify(bomByProduct));
+      }catch(ex){ console.warn('BOM too large for localStorage'); }
+    } else {
+      toast('❌ No se reconoció como BOM — verificá las columnas');
+    }
+  };
+  r.readAsText(f,'utf-8');
+  e.target.value='';
 }
 
 function procFile(file){
