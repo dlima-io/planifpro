@@ -814,7 +814,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
 </div>
 
 <!-- FALTANTE MODAL -->
-<div id="faltanteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1200;align-items:center;justify-content:center">
+<div id="faltanteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1200;align-items:center;justify-content:center" onclick="if(event.target===this)closeFaltanteModal()">
   <div style="background:var(--surf);border-radius:10px;padding:20px;width:480px;max-height:88vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <b style="font-size:14px">📦 Faltantes del proceso</b>
@@ -843,18 +843,11 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
         <label style="font-size:10px;color:var(--text3)">Código (BOM)</label>
         <input id="faltCodigo" type="text" placeholder="ej: 110712" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box">
       </div>
-      <div>
-        <label style="font-size:10px;color:var(--text3)">Tipo</label>
-        <select id="faltTipo" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
-          <option value="ingreso">Ingreso de material</option>
-          <option value="apto">Apto control de calidad</option>
-        </select>
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text3)">Estado actual</label>
+      <div style="grid-column:1/-1">
+        <label style="font-size:10px;color:var(--text3)">Estado</label>
         <select id="faltEstado" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
-          <option value="ingreso">Pendiente ingreso</option>
-          <option value="apto">Pendiente apto</option>
+          <option value="ingreso">⏳ Pendiente ingreso</option>
+          <option value="apto">🔬 Pendiente apto CC</option>
         </select>
       </div>
       <div>
@@ -4686,6 +4679,8 @@ function populateFfaList(entryId){
     </div>`).join('');
 }
 
+function closeFaltanteModal(){ document.getElementById('faltanteModal').style.display='none'; }
+
 function openFaltanteModalFromProcess(){
   // Use mTgt global set by openModal/openBacklogModal
   let entryId=null;
@@ -4744,13 +4739,8 @@ function openFaltanteModal(entryId){
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
           <div><label style="font-size:10px;color:var(--text3)">Tipo</label>
             <select id="faltBomTipo" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
-              <option value="ingreso">Pendiente ingreso</option>
-              <option value="apto">Pendiente apto CC</option>
-            </select></div>
-          <div><label style="font-size:10px;color:var(--text3)">Estado actual</label>
-            <select id="faltBomEstado" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
-              <option value="ingreso">Pendiente ingreso</option>
-              <option value="apto">Pendiente apto CC</option>
+              <option value="ingreso">⏳ Pendiente ingreso</option>
+              <option value="apto">🔬 Pendiente apto CC</option>
             </select></div>
           <div><label style="font-size:10px;color:var(--text3)">Fecha ingreso esperada</label>
             <input id="faltBomFechaIngreso" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box"></div>
@@ -4779,15 +4769,14 @@ function openFaltanteModal(entryId){
   ['faltNombre','faltCodigo','faltFechaIngreso','faltFechaApto','faltObs'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
-  document.getElementById('faltTipo').value='ingreso';
-  document.getElementById('faltEstado').value='ingreso';
+  const fEstEl=document.getElementById('faltEstado'); if(fEstEl) fEstEl.value='ingreso';
 }
 
 function saveFaltantesFromBom(entryId){
   const checkboxes=[...document.querySelectorAll('#faltBomSection input[type=checkbox]:checked:not([disabled])')];
   if(!checkboxes.length){ toast('Seleccioná al menos un material'); return; }
-  const tipo=document.getElementById('faltBomTipo')?.value||'ingreso';
-  const estado=document.getElementById('faltBomEstado')?.value||'ingreso';
+  const estado=document.getElementById('faltBomTipo')?.value||'ingreso';
+  const tipo=estado;
   const fi=document.getElementById('faltBomFechaIngreso')?.value||'';
   const fa=document.getElementById('faltBomFechaApto')?.value||'';
   let added=0;
@@ -4813,7 +4802,7 @@ function saveFaltante(){
     id: genFaltanteId(),
     nombre,
     codigo: document.getElementById('faltCodigo').value.trim(),
-    tipo: document.getElementById('faltTipo').value,
+    tipo: document.getElementById('faltEstado').value,
     estado: document.getElementById('faltEstado').value,
     fechaIngreso: document.getElementById('faltFechaIngreso').value,
     fechaApto: document.getElementById('faltFechaApto').value,
