@@ -219,6 +219,9 @@ body.light .th-past{opacity:.4}
 .th-triple{background:rgba(167,139,250,.12)!important;color:var(--purple)!important}
 body.light .dc.triple-turno{background:rgba(100,40,200,.05)!important}
 body.light .th-triple{background:rgba(100,40,200,.08)!important;color:#6428c8!important}
+.falt-item{background:var(--surf2);}
+.falt-overdue{border-color:var(--red)!important;background:rgba(239,68,68,.05)!important}
+.falt-date-ov{color:var(--red);font-weight:600}
 .falt-item{background:var(--surf2);border:1px solid var(--border);border-radius:7px;padding:10px 12px;display:flex;flex-direction:column;gap:5px}
 .falt-header{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .falt-nombre{font-weight:600;font-size:12px;flex:1}
@@ -236,7 +239,10 @@ body.light .th-triple{background:rgba(100,40,200,.08)!important;color:#6428c8!im
 .btn-del{background:rgba(239,68,68,.1);color:var(--red)}
 .dc.jornada-reducida{background:rgba(245,158,11,.07)!important}
 .th-reducida{background:rgba(245,158,11,.13)!important;color:var(--warn)!important}
-body.light .falt-item{background:var(--surf2);border:1px solid var(--border);border-radius:7px;padding:10px 12px;display:flex;flex-direction:column;gap:5px}
+body.light .falt-item{background:var(--surf2);}
+.falt-overdue{border-color:var(--red)!important;background:rgba(239,68,68,.05)!important}
+.falt-date-ov{color:var(--red);font-weight:600}
+.falt-item{background:var(--surf2);border:1px solid var(--border);border-radius:7px;padding:10px 12px;display:flex;flex-direction:column;gap:5px}
 .falt-header{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .falt-nombre{font-weight:600;font-size:12px;flex:1}
 .falt-cod{font-size:10px;color:var(--text3);background:var(--surf3);padding:1px 5px;border-radius:3px}
@@ -845,18 +851,14 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
       </div>
       <div style="grid-column:1/-1">
         <label style="font-size:10px;color:var(--text3)">Estado</label>
-        <select id="faltEstado" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
+        <select id="faltEstado" onchange="updateFaltFechaLabel()" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
           <option value="ingreso">⏳ Pendiente ingreso</option>
           <option value="apto">🔬 Pendiente apto CC</option>
         </select>
       </div>
-      <div>
-        <label style="font-size:10px;color:var(--text3)">Fecha ingreso esperada</label>
-        <input id="faltFechaIngreso" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box">
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text3)">Fecha apto esperada</label>
-        <input id="faltFechaApto" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box">
+      <div style="grid-column:1/-1">
+        <label id="faltFechaLabel" style="font-size:10px;color:var(--text3)">Fecha esperada</label>
+        <input id="faltFecha" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box">
       </div>
       <div style="grid-column:1/-1">
         <label style="font-size:10px;color:var(--text3)">Observaciones</label>
@@ -4522,14 +4524,44 @@ function getFaltantesForEntry(entryId){
 }
 
 // Advance material from 'ingreso' → 'apto' (sets fechaApto if provided)
-function marcarIngresado(faltanteId, fechaApto){
+function marcarIngresado(faltanteId){
+  const f=faltantes.get(faltanteId);
+  if(!f) return;
+  // Ask for apto date
+  showFechaAptoDialog(faltanteId);
+}
+
+function showFechaAptoDialog(faltanteId){
+  const f=faltantes.get(faltanteId);
+  if(!f) return;
+  // Create inline dialog
+  const dlg=document.createElement('div');
+  dlg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1500;display:flex;align-items:center;justify-content:center';
+  dlg.innerHTML=`<div style="background:var(--surf);border-radius:10px;padding:20px;width:320px;display:flex;flex-direction:column;gap:12px">
+    <b style="font-size:13px">✓ Material ingresado</b>
+    <div style="font-size:12px;color:var(--text2)">${esc(f.nombre)}</div>
+    <div>
+      <label style="font-size:10px;color:var(--text3)">Fecha de apto CC esperada (opcional)</label>
+      <input type="date" id="aptoDateInput" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box;margin-top:4px">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="bg" onclick="this.closest('div[style*=fixed]').remove()">Cancelar</button>
+      <button class="btn-primary" onclick="confirmarIngreso('${faltanteId}',document.getElementById('aptoDateInput').value);this.closest('div[style*=fixed]').remove()">Confirmar ingreso</button>
+    </div>
+  </div>`;
+  document.body.appendChild(dlg);
+}
+
+function confirmarIngreso(faltanteId, fechaApto){
   const f=faltantes.get(faltanteId);
   if(!f) return;
   f.estado='apto';
-  if(fechaApto) f.fechaApto=fechaApto;
+  f.fecha=fechaApto||'';
+  f.fechaApto=fechaApto||'';
+  f.fechaIngreso=''; // already ingested
   markChg(); renderFaltantesPanel(); renderGantt();
-  toast(`✓ "${f.nombre}" marcado como ingresado → pendiente de apto`);
-  log('FALTANTE',`"${f.nombre}" → Pendiente apto`);
+  toast(`✓ "${f.nombre}" ingresado → pendiente de apto CC`);
+  log('FALTANTE',`"${f.nombre}" → Pendiente apto CC`);
 }
 
 // Advance material from 'apto' → 'aprobado' (removes from all processes)
@@ -4602,26 +4634,26 @@ function renderFaltantesPanel(){
   const apto=[...faltantes.values()].filter(f=>f.estado==='apto')
     .sort((a,b)=>(a.fechaApto||'').localeCompare(b.fechaApto||''));
 
-  const renderItem=(f,showAction,actionLabel,actionFn,showDate,dateLabel,dateField)=>{
+  const renderItem=(f, actionLabel, actionFn)=>{
     const procs=(f.procesosIds||[]).map(pid=>{
       const e=findEntryById(pid)||backlog.find(b=>b.id===pid);
       return e?`${e.nombre} (L${e.lote||'?'})`:'?';
     }).join(', ');
-    const dateVal=f[dateField]||'';
-    return `<div class="falt-item" data-id="${f.id}">
+    const fecha=f.fecha||(f.estado==='ingreso'?f.fechaIngreso:f.fechaApto)||'';
+    const fechaLabel=f.estado==='ingreso'?'Ingreso esperado':'Apto CC esperado';
+    const today=dk(new Date());
+    const isOv=fecha&&fecha<today;
+    return `<div class="falt-item${isOv?' falt-overdue':''}" data-id="${f.id}">
       <div class="falt-header">
         <span class="falt-nombre">${esc(f.nombre)}</span>
         ${f.codigo?`<span class="falt-cod">${esc(f.codigo)}</span>`:''}
-        <span class="falt-tipo ${f.tipo==='ingreso'?'tipo-ing':'tipo-apt'}">${f.tipo==='ingreso'?'Ingreso':'Apto CC'}</span>
       </div>
-      ${dateVal?`<div class="falt-date">${dateLabel}: <strong>${dispDate(dateVal)}</strong></div>`:''}
+      ${fecha?`<div class="falt-date${isOv?' falt-date-ov':''}">${fechaLabel}: <strong>${dispDate(fecha)}</strong>${isOv?' ⚠':''}</div>`:''}
       ${f.obs?`<div class="falt-obs">${esc(f.obs)}</div>`:''}
-      <div class="falt-procs">Procesos: ${esc(procs||'ninguno')}</div>
+      <div class="falt-procs">${esc(procs||'ninguno')}</div>
       <div class="falt-actions">
-        ${showAction?`
-          ${showDate?`<input type="date" class="falt-date-input" id="faltDate_${f.id}" value="${dateVal}" style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text1)">`:'' }
-          <button class="btn-sm btn-ok" onclick="${actionFn}('${f.id}',document.getElementById('faltDate_${f.id}')?.value)">${actionLabel}</button>
-        `:''}
+        <button class="btn-sm btn-ok" onclick="${actionFn}('${f.id}')">${actionLabel}</button>
+        <button class="btn-sm" style="background:var(--surf3)" onclick="editFaltanteFecha('${f.id}')" title="Editar fecha">✏️</button>
         <button class="btn-sm btn-del" onclick="deleteFaltante('${f.id}')">🗑</button>
       </div>
     </div>`;
@@ -4629,11 +4661,11 @@ function renderFaltantesPanel(){
 
   const list = faltantesTab==='ingreso'
     ? (ingreso.length
-        ? ingreso.map(f=>renderItem(f,true,'✓ Ingresó','marcarIngresado',true,'Ingreso esperado','fechaIngreso')).join('')
+        ? ingreso.map(f=>renderItem(f,'✓ Ingresó','marcarIngresado')).join('')
         : '<div style="color:var(--text3);text-align:center;padding:20px;font-size:13px">Sin pendientes de ingreso</div>')
     : (apto.length
-        ? apto.map(f=>renderItem(f,true,'✓ Aprobado','marcarAprobado',false,'Apto esperado','fechaApto')).join('')
-        : '<div style="color:var(--text3);text-align:center;padding:20px;font-size:13px">Sin pendientes de apto</div>');
+        ? apto.map(f=>renderItem(f,'✓ Aprobado CC','marcarAprobado')).join('')
+        : '<div style="color:var(--text3);text-align:center;padding:20px;font-size:13px">Sin pendientes de apto CC</div>');
 
   document.getElementById('faltantesBody').innerHTML=list;
   document.getElementById('faltTabIngreso').className='tab-btn'+(faltantesTab==='ingreso'?' active':'');
@@ -4641,6 +4673,35 @@ function renderFaltantesPanel(){
   // Update badge counts
   const biEl=document.getElementById('faltBadgeIngreso'); if(biEl) biEl.textContent=ingreso.length||'';
   const baEl=document.getElementById('faltBadgeApto'); if(baEl) baEl.textContent=apto.length||'';
+}
+
+function editFaltanteFecha(id){
+  const f=faltantes.get(id);
+  if(!f) return;
+  const fechaLabel=f.estado==='ingreso'?'Fecha ingreso esperada':'Fecha apto CC esperada';
+  const fecha=f.fecha||(f.estado==='ingreso'?f.fechaIngreso:f.fechaApto)||'';
+  const dlg=document.createElement('div');
+  dlg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1500;display:flex;align-items:center;justify-content:center';
+  dlg.innerHTML=`<div style="background:var(--surf);border-radius:10px;padding:20px;width:300px;display:flex;flex-direction:column;gap:12px">
+    <b style="font-size:13px">✏️ Editar fecha</b>
+    <div style="font-size:12px;color:var(--text2)">${esc(f.nombre)}</div>
+    <div>
+      <label style="font-size:10px;color:var(--text3)">${fechaLabel}</label>
+      <input type="date" id="editFechaInput" value="${fecha}" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box;margin-top:4px">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="bg" onclick="this.closest('div[style*=fixed]').remove()">Cancelar</button>
+      <button class="btn-primary" onclick="
+        const newFecha=document.getElementById('editFechaInput').value;
+        const f=faltantes.get('${id}');
+        if(f){f.fecha=newFecha;f.estado==='ingreso'?f.fechaIngreso=newFecha:f.fechaApto=newFecha;}
+        markChg();renderFaltantesPanel();
+        this.closest('div[style*=fixed]').remove();
+        toast('Fecha actualizada');
+      ">Guardar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(dlg);
 }
 
 function deleteFaltante(id){
@@ -4680,6 +4741,12 @@ function populateFfaList(entryId){
 }
 
 function closeFaltanteModal(){ document.getElementById('faltanteModal').style.display='none'; }
+
+function updateFaltFechaLabel(){
+  const estado=document.getElementById('faltEstado')?.value;
+  const lbl=document.getElementById('faltFechaLabel');
+  if(lbl) lbl.textContent=estado==='ingreso'?'Fecha ingreso esperada':'Fecha apto CC esperada';
+}
 
 function openFaltanteModalFromProcess(){
   // Use mTgt global set by openModal/openBacklogModal
@@ -4742,10 +4809,8 @@ function openFaltanteModal(entryId){
               <option value="ingreso">⏳ Pendiente ingreso</option>
               <option value="apto">🔬 Pendiente apto CC</option>
             </select></div>
-          <div><label style="font-size:10px;color:var(--text3)">Fecha ingreso esperada</label>
-            <input id="faltBomFechaIngreso" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box"></div>
-          <div><label style="font-size:10px;color:var(--text3)">Fecha apto esperada</label>
-            <input id="faltBomFechaApto" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box"></div>
+          <div style="grid-column:1/-1"><label style="font-size:10px;color:var(--text3)">Fecha esperada</label>
+            <input id="faltBomFecha" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box"></div>
         </div>
         <button class="btn-primary" onclick="saveFaltantesFromBom('${entryId}')" style="margin-top:8px;width:100%;padding:6px">+ Agregar seleccionados</button>`;
     } else {
@@ -4770,6 +4835,7 @@ function openFaltanteModal(entryId){
     const el=document.getElementById(id); if(el) el.value='';
   });
   const fEstEl=document.getElementById('faltEstado'); if(fEstEl) fEstEl.value='ingreso';
+  updateFaltFechaLabel();
 }
 
 function saveFaltantesFromBom(entryId){
@@ -4777,13 +4843,14 @@ function saveFaltantesFromBom(entryId){
   if(!checkboxes.length){ toast('Seleccioná al menos un material'); return; }
   const estado=document.getElementById('faltBomTipo')?.value||'ingreso';
   const tipo=estado;
-  const fi=document.getElementById('faltBomFechaIngreso')?.value||'';
-  const fa=document.getElementById('faltBomFechaApto')?.value||'';
+  const fecha=document.getElementById('faltBomFecha')?.value||'';
+  const fi=estado==='ingreso'?fecha:'';
+  const fa=estado==='apto'?fecha:'';
   let added=0;
   for(const cb of checkboxes){
     const idMat=cb.dataset.mid, nbMat=cb.dataset.mnombre;
     if(!idMat) continue;
-    const f={id:genFaltanteId(),nombre:nbMat,codigo:idMat,tipo,estado,fechaIngreso:fi,fechaApto:fa,obs:'',procesosIds:[entryId]};
+    const f={id:genFaltanteId(),nombre:nbMat,codigo:idMat,tipo,estado,fechaIngreso:fi,fechaApto:fa,fecha,obs:'',procesosIds:[entryId]};
     faltantes.set(f.id,f);
     const entry=findEntryById(entryId)||backlog.find(b=>b.id===entryId);
     if(entry){ if(!entry.faltanteIds)entry.faltanteIds=[]; entry.faltanteIds.push(f.id); }
@@ -4804,8 +4871,9 @@ function saveFaltante(){
     codigo: document.getElementById('faltCodigo').value.trim(),
     tipo: document.getElementById('faltEstado').value,
     estado: document.getElementById('faltEstado').value,
-    fechaIngreso: document.getElementById('faltFechaIngreso').value,
-    fechaApto: document.getElementById('faltFechaApto').value,
+    fecha: document.getElementById('faltFecha')?.value||'',
+    fechaIngreso: document.getElementById('faltEstado')?.value==='ingreso'?document.getElementById('faltFecha')?.value||'':'',
+    fechaApto: document.getElementById('faltEstado')?.value==='apto'?document.getElementById('faltFecha')?.value||'':'',
     obs: document.getElementById('faltObs').value.trim(),
     procesosIds: [entryId],
   };
