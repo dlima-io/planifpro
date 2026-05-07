@@ -537,11 +537,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
     <div class="vsep"></div>
     <span id="chgBadge">● sin guardar</span>
     <button class="bg" id="undoBtn" onclick="undo()" disabled title="Ctrl+Z">↩</button>
-    <button class="bg" onclick="openFaltantesPanel()" title="Panel de faltantes" style="position:relative">
-      📦 Faltantes
-      <span id="faltBadgeIngreso" style="position:absolute;top:-4px;right:18px;background:var(--warn);color:#fff;border-radius:8px;font-size:9px;padding:1px 4px;min-width:12px;text-align:center"></span>
-      <span id="faltBadgeApto" style="position:absolute;top:-4px;right:-2px;background:var(--red);color:#fff;border-radius:8px;font-size:9px;padding:1px 4px;min-width:12px;text-align:center"></span>
-    </button>
+    <button class="bg" onclick="openFaltantesPanel()" title="Panel de faltantes">📦 Faltantes</button>
     <button class="bg" onclick="recalcAllDeadlines()" title="Recalcular todas las fechas límite automáticas" style="font-size:11px;padding:3px 9px">📅 Recalc</button>
     <button class="bg" onclick="openCalPanel()" title="Calendario laboral">📅</button>
     <button class="bg" id="fmtBtn" onclick="openFmtPanel()" title="Vista de formatos">🎨</button>
@@ -779,6 +775,86 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
   </div>
 </div>
 <input type="file" id="calFi" accept=".csv,.xlsx,.xls" onchange="loadCalFile(event)" style="display:none">
+
+<!-- FALTANTES PANEL -->
+<div id="faltantesPanel" style="display:none;position:fixed;top:0;right:0;width:380px;height:100vh;background:var(--surf);border-left:1px solid var(--border);flex-direction:column;z-index:800;box-shadow:-4px 0 20px rgba(0,0,0,.15)">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border)">
+    <span style="font-weight:700;font-size:14px">📦 Faltantes</span>
+    <button class="bg" onclick="closeFaltantesPanel()" style="padding:2px 8px">✕</button>
+  </div>
+  <div style="display:flex;border-bottom:1px solid var(--border)">
+    <button id="faltTabIngreso" class="tab-btn active" onclick="faltantesTab='ingreso';renderFaltantesPanel()" style="flex:1;padding:8px;font-size:12px">
+      Pendiente ingreso <span id="faltBadgeIngreso" style="background:var(--warn);color:#fff;border-radius:8px;font-size:9px;padding:1px 5px;margin-left:4px"></span>
+    </button>
+    <button id="faltTabApto" class="tab-btn" onclick="faltantesTab='apto';renderFaltantesPanel()" style="flex:1;padding:8px;font-size:12px">
+      Pendiente apto <span id="faltBadgeApto" style="background:var(--red);color:#fff;border-radius:8px;font-size:9px;padding:1px 5px;margin-left:4px"></span>
+    </button>
+  </div>
+  <div id="faltantesBody" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px"></div>
+</div>
+
+<!-- FALTANTE MODAL -->
+<div id="faltanteModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1200;align-items:center;justify-content:center">
+  <div style="background:var(--surf);border-radius:10px;padding:20px;width:480px;max-height:88vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <b style="font-size:14px">📦 Faltantes del proceso</b>
+      <button class="bg" onclick="closeFaltanteModal()">✕</button>
+    </div>
+    <div id="faltanteModalEntryNombre" style="font-size:12px;color:var(--text2);border-bottom:1px solid var(--border);padding-bottom:8px"></div>
+    <input type="hidden" id="faltanteModalEntryId">
+
+    <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Faltantes vinculados</div>
+    <div id="faltanteLinkedList" style="display:flex;flex-direction:column;gap:6px;min-height:20px"></div>
+
+    <div style="display:flex;gap:6px;align-items:center">
+      <select id="faltanteExistingSelect" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;display:none"></select>
+      <button class="btn-sm btn-ok" id="faltLinkBtn" onclick="linkExistingFaltante()" style="display:none">Vincular existente</button>
+    </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:10px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Agregar nuevo faltante</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div style="grid-column:1/-1">
+        <label style="font-size:10px;color:var(--text3)">Nombre / descripción *</label>
+        <input id="faltNombre" type="text" placeholder="ej: Apto 110712 Nebivolol" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box">
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text3)">Código (BOM)</label>
+        <input id="faltCodigo" type="text" placeholder="ej: 110712" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box">
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text3)">Tipo</label>
+        <select id="faltTipo" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
+          <option value="ingreso">Ingreso de material</option>
+          <option value="apto">Apto control de calidad</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text3)">Estado actual</label>
+        <select id="faltEstado" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
+          <option value="ingreso">Pendiente ingreso</option>
+          <option value="apto">Pendiente apto</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text3)">Fecha ingreso esperada</label>
+        <input id="faltFechaIngreso" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box">
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text3)">Fecha apto esperada</label>
+        <input id="faltFechaApto" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box">
+      </div>
+      <div style="grid-column:1/-1">
+        <label style="font-size:10px;color:var(--text3)">Observaciones</label>
+        <input id="faltObs" type="text" placeholder="ej: Pendiente resultado análisis micro" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box">
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
+      <button class="bg" onclick="closeFaltanteModal()">Cerrar</button>
+      <button class="btn-primary" onclick="saveFaltante()">+ Agregar faltante</button>
+    </div>
+  </div>
+</div>
 
 <!-- DEADLINE PANEL -->
 <div id="dlPanel">
@@ -4464,8 +4540,8 @@ function renderFaltantesPanel(){
   document.getElementById('faltTabIngreso').className='tab-btn'+(faltantesTab==='ingreso'?' active':'');
   document.getElementById('faltTabApto').className='tab-btn'+(faltantesTab==='apto'?' active':'');
   // Update badge counts
-  document.getElementById('faltBadgeIngreso').textContent=ingreso.length||'';
-  document.getElementById('faltBadgeApto').textContent=apto.length||'';
+  const biEl=document.getElementById('faltBadgeIngreso'); if(biEl) biEl.textContent=ingreso.length||'';
+  const baEl=document.getElementById('faltBadgeApto'); if(baEl) baEl.textContent=apto.length||'';
 }
 
 function deleteFaltante(id){
