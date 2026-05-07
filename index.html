@@ -234,9 +234,10 @@ body.light .th-triple{background:rgba(100,40,200,.08)!important;color:#6428c8!im
 .falt-procs{font-size:10px;color:var(--text3)}
 .falt-actions{display:flex;gap:6px;align-items:center;margin-top:4px}
 .falt-linked-item{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--surf2);border:1px solid var(--border);border-radius:5px}
-.btn-sm{padding:3px 8px;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600}
-.btn-ok{background:var(--ok);color:#fff}
-.btn-del{background:rgba(239,68,68,.1);color:var(--red)}
+.btn-sm{padding:4px 10px;border:none;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600;transition:filter .15s}
+.btn-sm:hover{filter:brightness(.92)}
+.btn-ok{background:#16a34a;color:#fff!important}
+.btn-del{background:rgba(239,68,68,.12);color:#dc2626!important;border:1px solid rgba(239,68,68,.2)}
 .dc.jornada-reducida{background:rgba(245,158,11,.07)!important}
 .th-reducida{background:rgba(245,158,11,.13)!important;color:var(--warn)!important}
 body.light .falt-item{background:var(--surf2);}
@@ -254,9 +255,10 @@ body.light .falt-item{background:var(--surf2);}
 .falt-procs{font-size:10px;color:var(--text3)}
 .falt-actions{display:flex;gap:6px;align-items:center;margin-top:4px}
 .falt-linked-item{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--surf2);border:1px solid var(--border);border-radius:5px}
-.btn-sm{padding:3px 8px;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600}
-.btn-ok{background:var(--ok);color:#fff}
-.btn-del{background:rgba(239,68,68,.1);color:var(--red)}
+.btn-sm{padding:4px 10px;border:none;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600;transition:filter .15s}
+.btn-sm:hover{filter:brightness(.92)}
+.btn-ok{background:#16a34a;color:#fff!important}
+.btn-del{background:rgba(239,68,68,.12);color:#dc2626!important;border:1px solid rgba(239,68,68,.2)}
 .dc.jornada-reducida{background:rgba(196,122,10,.05)!important}
 body.light .th-reducida{background:rgba(196,122,10,.1)!important;color:#b45309!important}
 th[data-special="1"]{cursor:help;position:relative;}
@@ -833,9 +835,12 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
     <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Faltantes vinculados</div>
     <div id="faltanteLinkedList" style="display:flex;flex-direction:column;gap:6px;min-height:20px"></div>
 
-    <div style="display:flex;gap:6px;align-items:center">
-      <select id="faltanteExistingSelect" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;display:none"></select>
-      <button class="btn-sm btn-ok" id="faltLinkBtn" onclick="linkExistingFaltante()" style="display:none">Vincular existente</button>
+    <div id="faltExistingWrapper" style="display:none;flex-direction:column;gap:6px;padding:10px;background:var(--surf2);border:1px solid var(--border);border-radius:7px">
+      <div style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Vincular faltante existente</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select id="faltanteExistingSelect" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf);color:var(--text1);font-size:12px"></select>
+        <button id="faltLinkBtn" onclick="linkExistingFaltante()" style="padding:5px 12px;border:none;border-radius:5px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Vincular</button>
+      </div>
     </div>
 
     <div id="faltBomSection" style="margin-top:4px"></div>
@@ -1860,22 +1865,28 @@ function renderGantt(){
     continuations=eqConts; // expose globally for debug
     for(const {key} of planDates){
       const entries=(grid[eq]&&grid[eq][key])||[];
+      let hoursUsedByPrevEntries=0; // hours consumed by earlier entries in same cell
       for(const entry of entries){
         const h=entry.horas||0;
 
         // Check if this process fits entirely in its start day
-        // considering hours already used by prior continuations
-        const alreadyUsedForSkip = (eqConts[key]||[])
+        // considering: continuations from other processes + earlier entries same cell
+        const contHours = (eqConts[key]||[])
           .filter(ct=>ct.entry!==entry)
           .reduce((s,ct)=>s+ct.horasThisDay, 0);
+        const alreadyUsedForSkip = contHours + hoursUsedByPrevEntries;
         const availableDay1 = Math.max(0, workdayHours(key, eq) - alreadyUsedForSkip);
-        if(h <= availableDay1) continue; // fits entirely — no continuation needed
+        if(h <= availableDay1){
+          // Fits in one day — track its consumption for subsequent entries in same cell
+          hoursUsedByPrevEntries += Math.min(h, availableDay1);
+          continue;
+        }
         const span=computeSpan(key,h,planDates,eq,alreadyUsedForSkip);
         if(span<=1) continue;
         const startIdx=planDates.findIndex(d=>d.key===key);
         // Day 1: subtract what's already used by continuations from other processes
-        const alreadyUsedOnDay1 = alreadyUsedForSkip; // already computed above
-        const day1Cap = availableDay1; // already computed above
+        const alreadyUsedOnDay1 = alreadyUsedForSkip;
+        const day1Cap = availableDay1;
         let remaining = h - day1Cap;
         let dayNum=1;
         // Use calendar-based iteration, not limited to planDates range
@@ -1898,6 +1909,8 @@ function renderGantt(){
           eqConts[fk].push({entry, srcDate:key, dayNum, totalDays:span, horasThisDay});
           remaining-=horasThisDay; // use horasThisDay not full cap
         }
+        // Track day1 hours for next entry in same cell
+        hoursUsedByPrevEntries += day1Cap;
 
       }
     }
@@ -4112,10 +4125,21 @@ function addCalEntry(){
     const allAffected=calEqs.length===0?eqs:calEqs;
     for(const eq of allAffected){
       if(!grid[eq]||(Object.keys(grid[eq]).length===0)) continue;
+      // Run cascade from the affected date — processes on that day
+      // may now overflow into the next day, pushing subsequent processes
       const shifts=scheduleQueue(eq, affectedDate);
       if(shifts.length>0){
         showCascadeConfirm(shifts, eq);
-        break; // one dialog at a time
+        break;
+      }
+      // Also check the next workday — overflow from reduced day may block it
+      const nextWd=getNextWorkday(affectedDate, eq);
+      if(nextWd){
+        const shifts2=scheduleQueue(eq, nextWd);
+        if(shifts2.length>0){
+          showCascadeConfirm(shifts2, eq);
+          break;
+        }
       }
     }
   }
@@ -4656,7 +4680,7 @@ function renderFaltantesPanel(){
       <div class="falt-procs">${esc(procs||'ninguno')}</div>
       <div class="falt-actions">
         <button class="btn-sm btn-ok" onclick="${actionFn}('${f.id}')">${actionLabel}</button>
-        <button class="btn-sm" style="background:var(--surf3)" onclick="editFaltanteFecha('${f.id}')" title="Editar fecha">✏️</button>
+        <button class="btn-sm" style="background:var(--surf2);border:1px solid var(--border);color:var(--text1)" onclick="editFaltanteFecha('${f.id}')" title="Editar fecha">✏️</button>
         <button class="btn-sm btn-del" onclick="deleteFaltante('${f.id}')">🗑</button>
       </div>
     </div>`;
@@ -4825,11 +4849,14 @@ function openFaltanteModal(entryId){
 
   // Link existing faltante
   const exEl=document.getElementById('faltanteExistingSelect');
-  const lbEl=document.getElementById('faltLinkBtn');
-  if(exEl&&lbEl){
-    exEl.innerHTML=existing.length?'<option value="">— Vincular faltante existente —</option>'+existing.map(f=>`<option value="${f.id}">${esc(f.nombre)}</option>`).join(''):'';
-    exEl.style.display=existing.length?'block':'none';
-    lbEl.style.display=existing.length?'inline-block':'none';
+  const wrapper=document.getElementById('faltExistingWrapper');
+  if(exEl&&wrapper){
+    if(existing.length){
+      exEl.innerHTML='<option value="">— Seleccioná un faltante —</option>'+existing.map(f=>`<option value="${f.id}">${esc(f.nombre)}${f.codigo?' ('+esc(f.codigo)+')':''} — ${f.estado==='ingreso'?'Pend. ingreso':'Pend. apto'}</option>`).join('');
+      wrapper.style.display='flex';
+    } else {
+      wrapper.style.display='none';
+    }
   }
 
   document.getElementById('faltanteModal').style.display='flex';
@@ -5031,6 +5058,17 @@ function countWorkdaysBetween(startDate, endDate, eq){
 }
 
 // ════════════ CASCADE SHIFT ════════════
+
+function getNextWorkday(dateStr, eq){
+  const _dk=d=>d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+  const d=new Date(dateStr+'T00:00:00');
+  for(let i=0;i<14;i++){
+    d.setDate(d.getDate()+1);
+    const k=_dk(d);
+    if(isWorkday(k,eq)) return k;
+  }
+  return null;
+}
 
 // Core scheduling function: given all processes in an equip in their
 // current order, find which ones need to move due to capacity constraints.
