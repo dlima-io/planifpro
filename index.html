@@ -203,6 +203,8 @@ body.light .th-triple{background:rgba(100,40,200,.08)!important;color:#6428c8!im
 .th-reducida{background:rgba(245,158,11,.13)!important;color:var(--warn)!important}
 body.light .dc.jornada-reducida{background:rgba(196,122,10,.05)!important}
 body.light .th-reducida{background:rgba(196,122,10,.1)!important;color:#b45309!important}
+th[data-special="1"]{cursor:help;position:relative;}
+th[data-special="1"]:hover::after{content:attr(title);position:absolute;top:calc(100% + 4px);left:50%;transform:translateX(-50%);background:var(--surf3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:11px;font-weight:500;white-space:nowrap;z-index:9999;color:var(--text1);box-shadow:0 4px 12px rgba(0,0,0,.2);pointer-events:none;}
 .th-holiday{background:rgba(239,68,68,.12)!important;color:var(--red)!important}
 .th-sat-en{background:rgba(34,211,238,.08)!important}
 body.light .dc.holiday{background:repeating-linear-gradient(-45deg,rgba(196,48,48,.07),rgba(196,48,48,.07) 3px,transparent 3px,transparent 8px)!important}
@@ -1018,6 +1020,22 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
 <div id="toast"></div>
 
 <script>
+// ════════════ CONFIGURACIÓN GLOBAL ════════════
+const CFG = {
+  HORAS_NORMAL:    15,
+  HORAS_SABADO:    7,
+  HORAS_TRIPLE:    24,
+  HORAS_REDUCIDA:  8,
+  MAX_CHIPS_CELDA: 5,
+  DL_DIAS_ALERTA:  21,
+  DL_DIAS_PRONTO:  14,
+  CASCADE_GAP_MAX: 1,
+  DEADLINE_DAYS:   { '5': 45, '6': 60, '7': 90 },
+  LOOP_SAFETY:     365,
+};
+// ═══════════════════════════════════════════════
+
+
 // ════════════ BOM ════════════
 
 let bomData = []; // Load BOM from file or Drive
@@ -1174,23 +1192,23 @@ function workdayHours(dateStr, equip){
     const ts=tripleShifts.get(dateStr);
     const appliesToAll=!ts.equipos||ts.equipos.length===0;
     if(appliesToAll||(equip&&ts.equipos.includes(equip)))
-      return ts.horas||24;
+      return ts.horas||CFG.HORAS_TRIPLE;
   }
   // Reduced shift (jornada reducida) — overrides normal 15h
   if(reducedShifts.has(dateStr)){
     const rs=reducedShifts.get(dateStr);
     const appliesToAll=!rs.equipos||rs.equipos.length===0;
     if(appliesToAll||(equip&&rs.equipos.includes(equip)))
-      return rs.horas||8;
+      return rs.horas||CFG.HORAS_REDUCIDA;
   }
   const d = new Date(dateStr + 'T00:00:00');
   if(d.getDay() === 6 && enabledSats.has(dateStr)){
     const sat=enabledSats.get(dateStr);
     const appliesToAll=!sat.equipos||sat.equipos.length===0;
     if(appliesToAll||(equip&&sat.equipos.includes(equip)))
-      return sat.horas||7;
+      return sat.horas||CFG.HORAS_SABADO;
   }
-  return 15;
+  return CFG.HORAS_NORMAL;
 }
 
 // Continuation chips (built during renderGantt, used by buildChips)
@@ -1372,7 +1390,7 @@ function tryPlanCsv(text){
     if(cantQ===''||cantQ==='0') continue;
     if(!ng[eq]){ng[eq]={};neqs.push(eq);}
     if(!ng[eq][dt]) ng[eq][dt]=[];
-    if(ng[eq][dt].length>=5) continue;
+    if(ng[eq][dt].length>=CFG.MAX_CHIPS_CELDA) continue;
     const savedId=iID>=0?(cols[iID]||'').trim():'';
     const depsStr=iDeps>=0?(cols[iDeps]||'').trim():'';
     const entry={
@@ -1595,7 +1613,14 @@ function renderGantt(){
     const isTriple=tripleShifts.has(key);
     const isReduced=reducedShifts.has(key);
     const isPast=key<todK;
-    dH+=`<th class="${we?'we ':''} ${tot?'tod ':''} ${isHol?'th-holiday ':''} ${isSatEn?'th-sat-en ':''} ${isTriple?'th-triple ':''} ${isReduced?'th-reducida ':''} ${isPast?'th-past ':''} drow-th" style="top:28px"><div class="thi"><span class="tdow">${dow}</span><span class="tday">${day}</span><span class="tmon">${mon}</span></div></th>`;
+    // Build tooltip for special days
+    const specialInfos=[];
+    if(isHol) specialInfos.push('🚫 Feriado');
+    if(isSatEn){const s=enabledSats.get(key);const eqs2=s?.equipos?.length?s.equipos.join(', '):'Todos';specialInfos.push(`✅ Sábado habilitado · ${s?.horas||CFG.HORAS_SABADO}h · ${eqs2}`);}
+    if(isTriple){const t=tripleShifts.get(key);const eqs2=t?.equipos?.length?t.equipos.join(', '):'Todos';specialInfos.push(`🔄 Triple turno · ${t?.horas||CFG.HORAS_TRIPLE}h · ${eqs2}`);}
+    if(isReduced){const r=reducedShifts.get(key);const eqs2=r?.equipos?.length?r.equipos.join(', '):'Todos';specialInfos.push(`⚡ Jornada reducida · ${r?.horas||CFG.HORAS_REDUCIDA}h · ${eqs2}`);}
+    const specialTitle=specialInfos.length?specialInfos.join(' | '):'';
+    dH+=`<th class="${we?'we ':''} ${tot?'tod ':''} ${isHol?'th-holiday ':''} ${isSatEn?'th-sat-en ':''} ${isTriple?'th-triple ':''} ${isReduced?'th-reducida ':''} ${isPast?'th-past ':''} drow-th" style="top:28px" ${specialTitle?`title="${specialTitle}" data-special="1"`:''}><div class="thi"><span class="tdow">${dow}</span><span class="tday">${day}</span><span class="tmon">${mon}</span></div></th>`;
   }
   head.innerHTML+=dH+'</tr>';
 
@@ -1641,7 +1666,7 @@ function renderGantt(){
         _contStart.setDate(_contStart.getDate()+1);
         let _safety=0;
 
-        while(remaining>0 && _safety++<365){
+        while(remaining>0 && _safety++<CFG.LOOP_SAFETY){
           const fk=_contDk(_contStart);
           _contStart.setDate(_contStart.getDate()+1);
           // Skip non-workdays for this equip
@@ -1690,7 +1715,7 @@ function renderGantt(){
       const loadCls=cellLoad>=cap?'load-ov':cellLoad>cap*0.85?'load-hi':cellLoad>0?'load-ok':'';
       const loadLabel=cellLoad>0?Math.round(cellLoad*10)/10+'h':'';
 
-      const canAdd=entries.length<5;
+      const canAdd=entries.length<CFG.MAX_CHIPS_CELDA;
       row+=`<td class="dc ${we?'we ':''} ${tot?'tod2 ':''}  ${isHolCell?'holiday ':''} ${isSatEnCell?'sat-enabled ':''}  ${isTripleCell?'triple-turno ':''}  ${isPastCell?'past ':''} ${isReducedCell?'jornada-reducida ':''}" 
         data-eq="${esc(eq)}" data-date="${key}"
       oncontextmenu="showCtxMenu(event,'${esc(eq)}','${key}',null)"
@@ -1709,7 +1734,7 @@ function renderGantt(){
 function buildChips(eq,key,entries){
   if(!entries||!entries.length) return '';
   let h='';
-  const MAX=5; // show all up to 5
+  const MAX=CFG.MAX_CHIPS_CELDA; // show all up to 5
   for(let i=0;i<Math.min(entries.length,MAX);i++){
     const e=entries[i];
     const dlStatus=deadlineStatus(e.fechaLimite, key);
@@ -1946,7 +1971,7 @@ function ctxPasteEntry(){
   const {equip, date} = ctxTarget;
   if(!grid[equip]) grid[equip]={};
   if(!grid[equip][date]) grid[equip][date]=[];
-  if(grid[equip][date].length >= 5){ toast('Máximo 5 procesos por celda'); hideCtxMenu(); return; }
+  if(grid[equip][date].length >= CFG.MAX_CHIPS_CELDA){ toast('Máximo '+CFG.MAX_CHIPS_CELDA+' procesos por celda'); hideCtxMenu(); return; }
 
   pushUndo();
   for(const orig of clipboard.entries){
@@ -2434,7 +2459,7 @@ function blDragStart(e){
 function dropBacklogToGrid(blIdx, destEq, destDate){
   if(!grid[destEq]) grid[destEq]={};
   if(!grid[destEq][destDate]) grid[destEq][destDate]=[];
-  if(grid[destEq][destDate].length>=5){ toast('Máximo 5 procesos por celda'); return; }
+  if(grid[destEq][destDate].length>=5){ toast('Máximo '+CFG.MAX_CHIPS_CELDA+' procesos por celda'); return; }
   pushUndo();
   const entry=JSON.parse(JSON.stringify(backlog[blIdx]));
   // Keep deps intact — validate scheduled ones, warn about unscheduled ones
@@ -2962,7 +2987,7 @@ function initDragDrop(){
 function doMove(destEq, destDate){
   if(!drag) return;
   if(grid[destEq]&&grid[destEq][destDate]&&grid[destEq][destDate].length>=5){
-    toast('Máximo 5 procesos por celda'); return;
+    toast('Máximo '+CFG.MAX_CHIPS_CELDA+' procesos por celda'); return;
   }
   // Dependency check — resolve current location of each dep by targetId
   if(drag.entry.deps&&drag.entry.deps.length){
@@ -3244,7 +3269,7 @@ function saveEntry(){
   if(!grid[equip][date]) grid[equip][date]=[];
 
   if(idx===null){
-    if(grid[equip][date].length>=5){toast('Máximo 5 procesos por celda');return;}
+    if(grid[equip][date].length>=5){toast('Máximo '+CFG.MAX_CHIPS_CELDA+' procesos por celda');return;}
     grid[equip][date].push(entry);
   } else {
     grid[equip][date][idx]=entry;
@@ -3479,7 +3504,7 @@ function loadXlsxCols(wb){
     }
     if(!ng[eq]){ng[eq]={};neqs.push(eq);}
     if(!ng[eq][dt]) ng[eq][dt]=[];
-    if(ng[eq][dt].length>=5) continue;
+    if(ng[eq][dt].length>=CFG.MAX_CHIPS_CELDA) continue;
     const entry={
       id:savedId||genId(),
       nombre:nb,
@@ -3722,7 +3747,7 @@ function undo(){
 
 // ════════════ UTILS ════════════
 // ── Deadline status helper ──
-const DAYS_WARN = 14;
+const DAYS_WARN = CFG.DL_DIAS_PRONTO;
 function deadlineStatus(fechaLimite, refDateStr){
   // refDateStr: 'YYYY-MM-DD' string
   if(!fechaLimite) return null;
@@ -3801,9 +3826,9 @@ function toggleCalFields(){
   const sf=document.getElementById('calSatFields');
   sf.style.display=(t==='sabado_habilitado'||t==='triple_turno'||t==='jornada_reducida')?'grid':'none';
   const hEl=document.getElementById('calHoras');
-  if(hEl&&t==='triple_turno') hEl.value='24';
-  else if(hEl&&t==='sabado_habilitado') hEl.value='7';
-  else if(hEl&&t==='jornada_reducida') hEl.value='8';
+  if(hEl&&t==='triple_turno') hEl.value=CFG.HORAS_TRIPLE;
+  else if(hEl&&t==='sabado_habilitado') hEl.value=CFG.HORAS_SABADO;
+  else if(hEl&&t==='jornada_reducida') hEl.value=CFG.HORAS_REDUCIDA;
   // Show/hide Hasta field
   const hw=document.getElementById('calHastaWrapper');
   if(hw) hw.style.display=t==='jornada_reducida'?'flex':'none';
@@ -4138,7 +4163,7 @@ function detectFmtAlerts(fmt, items){
 
 // ════════════ DEADLINE PANEL ════════════
 let dlTab = 'sched';
-const DL_DAYS = 21; // 3 weeks
+const DL_DAYS = CFG.DL_DIAS_ALERTA; // 3 weeks
 
 function openDlPanel(){
   dlTab='sched';
@@ -4267,7 +4292,7 @@ function fillDayUsed(dayUsed, startDate, horas, eq){
   let d = new Date(startDate+'T00:00:00');
   const _dk = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
   let safety = 0;
-  while(rem > 0 && safety++ < 365){
+  while(rem > 0 && safety++ < CFG.LOOP_SAFETY){
     const k = _dk(d);
     if(isWorkday(k, eq)){
       const cap = workdayHours(k, eq);
@@ -4305,7 +4330,7 @@ function getProcessEndDate(startDate, horas, eq){
   const _dk = dt=>dt.getFullYear()+'-'+('0'+(dt.getMonth()+1)).slice(-2)+'-'+('0'+dt.getDate()).slice(-2);
   let lastDay = startDate;
   let safety = 0;
-  while(rem > 0 && safety++ < 365){
+  while(rem > 0 && safety++ < CFG.LOOP_SAFETY){
     const k = _dk(d);
     if(isWorkday(k, eq)){
       lastDay = k;
@@ -4490,9 +4515,7 @@ function sixthDigit(codigo){
 // Days offset by 6th digit
 function deadlineDaysForCodigo(codigo){
   const d = sixthDigit(codigo);
-  if(d==='5') return 45;
-  if(d==='6') return 60;
-  if(d==='7') return 90;
+  if(CFG.DEADLINE_DAYS[d]) return CFG.DEADLINE_DAYS[d];
   return null;
 }
 
@@ -4971,7 +4994,7 @@ async function gReloadFromSheet(){
       } else {
         if(!ng[eq]){ng[eq]={};neqs.push(eq);}
         if(!ng[eq][dt]) ng[eq][dt]=[];
-        if(ng[eq][dt].length<5){
+        if(ng[eq][dt].length<CFG.MAX_CHIPS_CELDA){
           ng[eq][dt].push(entry);
           if(depsStr) rawDeps.push({entry,depsStr});
         }
