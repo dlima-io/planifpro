@@ -1460,24 +1460,21 @@ function xlsxEntry(val,note){
 // ════════════ BOM ════════════
 function tryBom(text){
   const lines=text.split('\n').filter(l=>l.trim());
-  console.log('[BOM] total lines:', lines.length);
   if(!lines.length) return 0;
   // Detect separator: tab, semicolon or comma
   const firstLine=lines[0].replace(/^\uFEFF/,'');
   const sep=firstLine.includes('\t')?'\t':firstLine.includes(';')?';':',';
-  console.log('[BOM] separator:', JSON.stringify(sep));
   const hdrs=firstLine.split(sep).map(h=>h.trim().toLowerCase().replace(/[^a-záéíóúñ0-9_ ]/gi,'').trim());
-  console.log('[BOM] headers:', hdrs);
   // Find columns - flexible matching
   const find=(terms)=>hdrs.findIndex(h=>terms.some(t=>h===t||h.includes(t)));
   const iN=find(['nombre_producto','nombre producto','product name']);
-  const iI=find(['id producto','id_producto','idproducto','id terminado','codigo producto']);
+  const iI=find(['id producto','id_producto','idproducto','codigo producto']); // NOT 'id terminado'
   const iM=find(['id material','id_material','idmaterial','codigo material']);
-  const iNM=find(['nombre_material','nombre material','material name','componente']);
+  const iNM=find(['nombre_material','nombre material','material name']);
+  // 'componente' column might be Nivel/tipo info, not material name — use nombre_material
   const iQ=find(['cantidad','qty','quantity']);
   const iTipo=find(['tipo elaboracion','tipo_elaboracion','tipo']);
-  console.log('[BOM] col indices — iI:'+iI+' iN:'+iN+' iM:'+iM+' iNM:'+iNM);
-  if(iI<0||iN<0){ console.log('[BOM] FAIL: missing ID Producto or nombre_producto column'); return 0; }
+  if(iI<0||iN<0) return 0;
   const seen={}; const cat=[];
   // bomByProduct: idProducto → [{idMaterial, nombreMaterial, cantidad, tipo}]
   const byProduct={};
