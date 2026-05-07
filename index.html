@@ -2880,9 +2880,10 @@ function doMoveSelection(destEq, destDate, anchorEq, anchorDate){
   if(!sel.size) return;
 
   const items=[...sel].map(k=>{
-    const[eq,date,idx]=k.split('|');
-    return {eq, date, idx:parseInt(idx)};
-  });
+    const parts=k.split('|');
+    const eq=parts[0], date=parts[1], idx=parseInt(parts[2]);
+    return {eq, date, idx};
+  }).filter(it=>it.eq && it.date && !isNaN(it.idx));
 
   // Determine anchor: the dragged chip, or (if click-move) earliest date in selection
   let aDate=anchorDate, aEq=anchorEq;
@@ -2918,6 +2919,7 @@ function doMoveSelection(destEq, destDate, anchorEq, anchorDate){
     const ck=p.newEq+'|'+p.newDate;
     destCounts[ck]=(destCounts[ck]||0)+1;
     // Also count existing entries not in selection
+    if(!p.newEq||!p.newDate) continue;
     const existing=(grid[p.newEq]&&grid[p.newEq][p.newDate])||[];
     const existingNotSel=existing.filter((_,i)=>!sel.has(`${p.newEq}|${p.newDate}|${i}`)).length;
     if(destCounts[ck]+existingNotSel>5){
@@ -4670,7 +4672,7 @@ function renderFaltantesPanel(){
     const fechaLabel=f.estado==='ingreso'?'Ingreso esperado':'Apto CC esperado';
     const today=dk(new Date());
     const isOv=fecha&&fecha<today;
-    return `<div class="falt-item${isOv?' falt-overdue':''}" data-id="${f.id}">
+    return `<div class="falt-item${isOv?' falt-overdue':''}" data-id="${f.id}" onclick="navigateToFaltante('${f.id}')" style="cursor:pointer">
       <div class="falt-header">
         <span class="falt-nombre">${esc(f.nombre)}</span>
         ${f.codigo?`<span class="falt-cod">${esc(f.codigo)}</span>`:''}
@@ -4700,6 +4702,38 @@ function renderFaltantesPanel(){
   // Update badge counts
   const biEl=document.getElementById('faltBadgeIngreso'); if(biEl) biEl.textContent=ingreso.length||'';
   const baEl=document.getElementById('faltBadgeApto'); if(baEl) baEl.textContent=apto.length||'';
+}
+
+function navigateToFaltante(id){
+  const f=faltantes.get(id);
+  if(!f||!(f.procesosIds||[]).length) return;
+  // Find the process with the nearest upcoming date
+  let bestEntry=null, bestDate=null;
+  for(const pid of f.procesosIds){
+    for(const eq of eqs){
+      for(const [date, entries] of Object.entries(grid[eq]||{})){
+        const entry=entries.find(e=>e.id===pid);
+        if(entry && (!bestDate || date < bestDate)){
+          bestDate=date; bestEntry={entry, eq, date};
+        }
+      }
+    }
+  }
+  if(!bestEntry){ toast('Proceso no encontrado en el Gantt'); return; }
+  closeFaltantesPanel();
+  // Scroll to the date and highlight
+  const th=document.querySelector(`th[data-date="${bestEntry.date}"]`);
+  if(th) th.scrollIntoView({behavior:'smooth', inline:'center'});
+  // Highlight the chip briefly
+  setTimeout(()=>{
+    const chip=document.querySelector(`.chip[data-eq="${CSS.escape(bestEntry.eq)}"][data-date="${bestEntry.date}"][data-id="${bestEntry.entry.id}"]`);
+    if(chip){
+      chip.style.outline='3px solid var(--accent)';
+      chip.style.outlineOffset='2px';
+      setTimeout(()=>{chip.style.outline='';chip.style.outlineOffset='';},2500);
+    }
+  },400);
+  toast(`📍 ${bestEntry.entry.nombre} — ${dispDate(bestEntry.date)}`);
 }
 
 function editFaltanteFecha(id){
@@ -5075,7 +5109,6 @@ function getNextWorkday(dateStr, eq){
 // Returns array of {entry, fromDate, toDate} — processes that must shift.
 // Only processes at or after fromDate are considered.
 function scheduleQueue(eq, fromDate){
-  console.log('[SQ] eq:', eq, 'fromDate:', fromDate);
   // Collect all processes sorted by date then position
   const all = [];
   for(const [date, entries] of Object.entries(grid[eq]||{})){
@@ -5089,7 +5122,6 @@ function scheduleQueue(eq, fromDate){
   for(const {entry, date} of all){
     if(date < fromDate) fillDayUsed(dayUsed, date, entry.horas||0, eq);
   }
-  console.log('[SQ] dayUsed after pre-fill:', JSON.stringify(dayUsed));
 
   const shifts = [];
   let prevEndDate = null; // end date of last processed entry
@@ -5102,7 +5134,6 @@ function scheduleQueue(eq, fromDate){
 
     // Find first available date for this process (on or after origDate)
     const bestDate = findFirstAvailableDate(dayUsed, origDate, entry.horas||0, eq);
-    console.log('[SQ] entry:', entry.nombre, 'origDate:', origDate, 'bestDate:', bestDate, 'dayUsed[origDate]:', dayUsed[origDate]||0);
 
     // Only shift if:
     // 1. bestDate differs from origDate (collision), OR
