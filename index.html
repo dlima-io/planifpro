@@ -811,7 +811,8 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
       <button class="btn-sm btn-ok" id="faltLinkBtn" onclick="linkExistingFaltante()" style="display:none">Vincular existente</button>
     </div>
 
-    <div style="border-top:1px solid var(--border);padding-top:10px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Agregar nuevo faltante</div>
+    <div id="faltBomSection" style="margin-top:4px"></div>
+    <div style="border-top:1px solid var(--border);padding-top:10px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em">Agregar faltante manualmente</div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div style="grid-column:1/-1">
@@ -1155,6 +1156,7 @@ const CFG = {
 // ════════════ BOM ════════════
 
 let bomData = []; // Load BOM from file or Drive
+let bomByProduct = {}; // idProducto → [{id, nombre, cantidad, tipo}]
 
 function buildBomIndex(d){ const r={}; for(const p of d) r[p.id]=p; return r; }
 let bomIdx = buildBomIndex(bomData);
@@ -1459,22 +1461,53 @@ function xlsxEntry(val,note){
 function tryBom(text){
   const lines=text.split('\n').filter(l=>l.trim());
   if(!lines.length) return 0;
-  const sep=lines[0].includes(';')?';':',';
-  const hdrs=lines[0].split(sep).map(h=>h.replace(/^\uFEFF/,'').trim().toLowerCase());
-  const iN=hdrs.findIndex(h=>h.includes('nombre_producto'));
-  const iI=hdrs.findIndex(h=>h.includes('id producto')||h==='id producto');
-  if(iN<0||iI<0) return 0;
+  // Detect separator: tab, semicolon or comma
+  const firstLine=lines[0].replace(/^\uFEFF/,'');
+  const sep=firstLine.includes('\t')?'\t':firstLine.includes(';')?';':',';
+  const hdrs=firstLine.split(sep).map(h=>h.trim().toLowerCase().replace(/[^a-záéíóúñ0-9_ ]/gi,'').trim());
+  // Find columns - flexible matching
+  const find=(terms)=>hdrs.findIndex(h=>terms.some(t=>h===t||h.includes(t)));
+  const iN=find(['nombre_producto','nombre producto','product name']);
+  const iI=find(['id producto','id_producto','idproducto','id terminado','codigo producto']);
+  const iM=find(['id material','id_material','idmaterial','codigo material']);
+  const iNM=find(['nombre_material','nombre material','material name','componente']);
+  const iQ=find(['cantidad','qty','quantity']);
+  const iTipo=find(['tipo elaboracion','tipo_elaboracion','tipo']);
+  if(iI<0||iN<0) return 0;
   const seen={}; const cat=[];
+  // bomByProduct: idProducto → [{idMaterial, nombreMaterial, cantidad, tipo}]
+  const byProduct={};
   for(let i=1;i<lines.length;i++){
     const cols=lines[i].split(sep);
-    const id=(cols[iI]||'').trim(); const nb=(cols[iN]||'').trim();
-    if(!id||!nb||seen[id]) continue; seen[id]=true;
-    const fm=nb.match(/(\d+[Xx]\d+)/);
-    const nu=nb.toUpperCase();
-    const un=nu.includes('COMP')?'Comp':nu.includes('CAP')||nu.includes('CÁP')?'Caps':nu.includes('SUSP')||nu.includes('SOL')?'mL':'';
-    cat.push({id,nombre:nb,formato:fm?fm[1].toUpperCase():'',unidad:un});
+    const id=(cols[iI]||'').trim();
+    const nb=(cols[iN]||'').trim();
+    if(!id||!nb) continue;
+    // Add to product catalog (deduplicated)
+    if(!seen[id]){
+      seen[id]=true;
+      const fm=nb.match(/(\d+[Xx]\d+)/i);
+      const nu=nb.toUpperCase();
+      const un=nu.includes('COMP')?'Comp':nu.includes('CAP')||nu.includes('CÁP')?'Caps':nu.includes('SUSP')||nu.includes('SOL')?'mL':'';
+      cat.push({id,nombre:nb,formato:fm?fm[1].toUpperCase():'',unidad:un});
+      byProduct[id]=[];
+    }
+    // Add material to product
+    if(iM>=0&&iNM>=0){
+      const idMat=(cols[iM]||'').trim();
+      const nbMat=(cols[iNM]||'').trim();
+      if(idMat&&nbMat){
+        byProduct[id]=byProduct[id]||[];
+        byProduct[id].push({
+          id:idMat, nombre:nbMat,
+          cantidad:(cols[iQ]||'').trim(),
+          tipo:(cols[iTipo]||'').trim(),
+        });
+      }
+    }
   }
-  bomData=cat; bomIdx=buildBomIndex(cat); return cat.length;
+  bomData=cat; bomIdx=buildBomIndex(cat); bomByProduct=byProduct;
+  localStorage.setItem('planifBomByProduct', JSON.stringify(byProduct));
+  return cat.length;
 }
 
 // ════════════ CSV PLAN ════════════
@@ -4604,43 +4637,104 @@ function openFaltanteModalFromProcess(){
 function openFaltanteModal(entryId){
   const entry=findEntryById(entryId)||backlog.find(b=>b.id===entryId);
   if(!entry) return;
-  // Show current faltantes for this entry + form to add new
   const linked=getFaltantesForEntry(entryId);
   const existing=[...faltantes.values()].filter(f=>!linked.find(l=>l.id===f.id));
-  // BOM autocomplete available via bomData
 
   document.getElementById('faltanteModalEntryId').value=entryId;
   document.getElementById('faltanteModalEntryNombre').textContent=entry.nombre+(entry.lote?' L'+entry.lote:'');
-  
-  // Render linked faltantes
-  const linkedHtml=linked.length
+
+  // Linked faltantes list
+  document.getElementById('faltanteLinkedList').innerHTML=linked.length
     ? linked.map(f=>`<div class="falt-linked-item">
-        <span class="falt-nombre">${esc(f.nombre)}</span>
-        <span class="falt-tipo ${f.estado==='ingreso'?'tipo-ing':'tipo-apt'}">${f.estado==='ingreso'?'Pend. ingreso':'Pend. apto'}</span>
+        <span style="flex:1;font-size:11px;font-weight:600">${esc(f.nombre)}</span>
+        <span class="falt-cod">${esc(f.codigo||'')}</span>
+        <span class="falt-tipo ${f.estado==='ingreso'?'tipo-ing':'tipo-apt'}">${f.estado==='ingreso'?'↓ Ingreso':'✓ CC'}</span>
         <button class="btn-sm btn-del" onclick="unlinkFaltanteFromEntry('${f.id}','${entryId}');openFaltanteModal('${entryId}');markChg()">✕</button>
       </div>`).join('')
-    : '<div style="color:var(--text3);font-size:12px">Sin faltantes vinculados</div>';
-  document.getElementById('faltanteLinkedList').innerHTML=linkedHtml;
+    : '<div style="color:var(--text3);font-size:11px;padding:4px 0">Sin faltantes vinculados</div>';
 
-  // Existing faltantes dropdown (to link existing)
-  const existingOpts=existing.length
-    ? '<option value="">— Vincular existente —</option>'+existing.map(f=>`<option value="${f.id}">${esc(f.nombre)} [${f.estado==='ingreso'?'Pend. ingreso':'Pend. apto'}]</option>`).join('')
-    : '';
+  // BOM materials section
+  const codigo=entry.codigo||'';
+  const materials=bomByProduct[codigo]||[];
+  const linkedCodigos=new Set(linked.map(f=>f.codigo));
+  const bomSec=document.getElementById('faltBomSection');
+  if(bomSec){
+    if(materials.length){
+      bomSec.innerHTML=`
+        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Materiales del producto (BOM)</div>
+        <div style="display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:6px">
+          ${materials.map(m=>{
+            const ya=linkedCodigos.has(m.id);
+            return `<label style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:4px;cursor:${ya?'default':'pointer'};opacity:${ya?.5:1};background:${ya?'var(--surf3)':'transparent'}">
+              <input type="checkbox" data-mid="${esc(m.id)}" data-mnombre="${esc(m.nombre)}" ${ya?'disabled checked':''}  style="width:13px;height:13px;flex-shrink:0">
+              <span style="flex:1;font-size:11px">${esc(m.nombre)}</span>
+              <span style="font-size:10px;color:var(--text3);white-space:nowrap">${esc(m.id)}</span>
+            </label>`;
+          }).join('')}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px">
+          <div><label style="font-size:10px;color:var(--text3)">Tipo</label>
+            <select id="faltBomTipo" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
+              <option value="ingreso">Pendiente ingreso</option>
+              <option value="apto">Pendiente apto CC</option>
+            </select></div>
+          <div><label style="font-size:10px;color:var(--text3)">Estado actual</label>
+            <select id="faltBomEstado" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px">
+              <option value="ingreso">Pendiente ingreso</option>
+              <option value="apto">Pendiente apto CC</option>
+            </select></div>
+          <div><label style="font-size:10px;color:var(--text3)">Fecha ingreso esperada</label>
+            <input id="faltBomFechaIngreso" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box"></div>
+          <div><label style="font-size:10px;color:var(--text3)">Fecha apto esperada</label>
+            <input id="faltBomFechaApto" type="date" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;background:var(--surf2);color:var(--text1);font-size:12px;box-sizing:border-box"></div>
+        </div>
+        <button class="btn-primary" onclick="saveFaltantesFromBom('${entryId}')" style="margin-top:8px;width:100%;padding:6px">+ Agregar seleccionados</button>`;
+    } else {
+      bomSec.innerHTML=`<div style="color:var(--text3);font-size:11px;padding:8px;border:1px dashed var(--border);border-radius:5px;text-align:center">
+        ${codigo&&Object.keys(bomByProduct).length?`Sin materiales BOM para código "${codigo}"`:!Object.keys(bomByProduct).length?'Cargá la tabla BOM primero':'Sin código de producto'}
+      </div>`;
+    }
+  }
+
+  // Link existing faltante
   const exEl=document.getElementById('faltanteExistingSelect');
-  if(exEl){ exEl.innerHTML=existingOpts; exEl.style.display=existing.length?'block':'none'; }
+  const lbEl=document.getElementById('faltLinkBtn');
+  if(exEl&&lbEl){
+    exEl.innerHTML=existing.length?'<option value="">— Vincular faltante existente —</option>'+existing.map(f=>`<option value="${f.id}">${esc(f.nombre)}</option>`).join(''):'';
+    exEl.style.display=existing.length?'block':'none';
+    lbEl.style.display=existing.length?'inline-block':'none';
+  }
 
   document.getElementById('faltanteModal').style.display='flex';
-  // Clear new form
-  document.getElementById('faltNombre').value='';
-  document.getElementById('faltCodigo').value='';
+  // Clear manual form
+  ['faltNombre','faltCodigo','faltFechaIngreso','faltFechaApto','faltObs'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
   document.getElementById('faltTipo').value='ingreso';
   document.getElementById('faltEstado').value='ingreso';
-  document.getElementById('faltFechaIngreso').value='';
-  document.getElementById('faltFechaApto').value='';
-  document.getElementById('faltObs').value='';
 }
 
-function closeFaltanteModal(){ document.getElementById('faltanteModal').style.display='none'; }
+function saveFaltantesFromBom(entryId){
+  const checkboxes=[...document.querySelectorAll('#faltBomSection input[type=checkbox]:checked:not([disabled])')];
+  if(!checkboxes.length){ toast('Seleccioná al menos un material'); return; }
+  const tipo=document.getElementById('faltBomTipo')?.value||'ingreso';
+  const estado=document.getElementById('faltBomEstado')?.value||'ingreso';
+  const fi=document.getElementById('faltBomFechaIngreso')?.value||'';
+  const fa=document.getElementById('faltBomFechaApto')?.value||'';
+  let added=0;
+  for(const cb of checkboxes){
+    const idMat=cb.dataset.mid, nbMat=cb.dataset.mnombre;
+    if(!idMat) continue;
+    const f={id:genFaltanteId(),nombre:nbMat,codigo:idMat,tipo,estado,fechaIngreso:fi,fechaApto:fa,obs:'',procesosIds:[entryId]};
+    faltantes.set(f.id,f);
+    const entry=findEntryById(entryId)||backlog.find(b=>b.id===entryId);
+    if(entry){ if(!entry.faltanteIds)entry.faltanteIds=[]; entry.faltanteIds.push(f.id); }
+    added++;
+  }
+  if(added){ markChg(); openFaltanteModal(entryId); renderGantt(); populateFfaList(entryId); }
+  toast(`✓ ${added} faltante${added>1?'s':''} agregado${added>1?'s':''}`);
+}
+
 
 function saveFaltante(){
   const entryId=document.getElementById('faltanteModalEntryId').value;
