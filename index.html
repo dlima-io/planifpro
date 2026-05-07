@@ -5075,6 +5075,7 @@ function getNextWorkday(dateStr, eq){
 // Returns array of {entry, fromDate, toDate} — processes that must shift.
 // Only processes at or after fromDate are considered.
 function scheduleQueue(eq, fromDate){
+  console.log('[SQ] eq:', eq, 'fromDate:', fromDate);
   // Collect all processes sorted by date then position
   const all = [];
   for(const [date, entries] of Object.entries(grid[eq]||{})){
@@ -5088,6 +5089,7 @@ function scheduleQueue(eq, fromDate){
   for(const {entry, date} of all){
     if(date < fromDate) fillDayUsed(dayUsed, date, entry.horas||0, eq);
   }
+  console.log('[SQ] dayUsed after pre-fill:', JSON.stringify(dayUsed));
 
   const shifts = [];
   let prevEndDate = null; // end date of last processed entry
@@ -5100,6 +5102,7 @@ function scheduleQueue(eq, fromDate){
 
     // Find first available date for this process (on or after origDate)
     const bestDate = findFirstAvailableDate(dayUsed, origDate, entry.horas||0, eq);
+    console.log('[SQ] entry:', entry.nombre, 'origDate:', origDate, 'bestDate:', bestDate, 'dayUsed[origDate]:', dayUsed[origDate]||0);
 
     // Only shift if:
     // 1. bestDate differs from origDate (collision), OR
