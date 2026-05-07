@@ -1363,6 +1363,7 @@ dzEl.addEventListener('drop', e=>{e.preventDefault();dzEl.classList.remove('over
 function loadFile(e){ procFile(e.target.files[0]); e.target.value=''; }
 function loadBomFile(e){
   const f=e.target.files[0]; if(!f) return;
+  console.log('[loadBomFile] file:', f.name, f.size, 'bytes');
   const r=new FileReader();
   r.onload=ev=>{
     const cnt=tryBom(ev.target.result);
