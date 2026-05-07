@@ -4876,7 +4876,8 @@ async function gSaveNow(){
     const calRows=[['Fecha','Tipo','Descripcion','Equipos','Horas']];
     for(const d of [...holidays].sort()) calRows.push([d,'feriado','','','']);
     for(const [d,v] of [...enabledSats.entries()].sort()) calRows.push([d,'sabado_habilitado',v.desc||'',(v.equipos||[]).join(','),v.horas||7]);
-    for(const [d,v] of [...tripleShifts.entries()].sort()) calRows.push([d,'triple_turno',v.desc||'',(v.equipos||[]).join(','),v.horas||24]);
+    for(const [d,v] of [...tripleShifts.entries()].sort()) calRows.push([d,'triple_turno',v.desc||'',(v.equipos||[]).join(','),v.horas||CFG.HORAS_TRIPLE]);
+    for(const [d,v] of [...reducedShifts.entries()].sort()) calRows.push([d,'jornada_reducida',v.desc||'',(v.equipos||[]).join(','),v.horas||CFG.HORAS_REDUCIDA]);
     await gApiRequest('POST',
       `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}/values:batchClear`,
       { ranges: ['Calendario!A1:F2000'] }
