@@ -87,7 +87,17 @@ body.light .bt2{background:rgba(26,122,74,.12);color:#1a7a4a}
 body.light .bx2{background:rgba(139,115,90,.1);color:#6c5c48}
 /* UI elements */
 body.light #topbar{background:#fdfaf7;border-bottom-color:#d8cfc4;box-shadow:0 1px 4px rgba(80,50,20,.08)}
-body.light .brand{color:var(--accent)}
+body.light .tbtn{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;background:var(--surf2);color:var(--text1);transition:background .15s;white-space:nowrap}
+.tbtn:hover{background:var(--surf3)}
+.tbtn:disabled{opacity:.45;cursor:default}
+.tbtn-icon{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:none;border-radius:5px;cursor:pointer;font-size:15px;background:var(--surf2);color:var(--text1);transition:background .15s}
+.tbtn-icon:hover{background:var(--surf3)}
+.tbtn-icon:disabled{opacity:.45;cursor:default}
+.tbtn-sm{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:none;border-radius:5px;cursor:pointer;font-size:11px;font-weight:500;background:var(--surf2);color:var(--text1)}
+.tbtn-sm.on{background:var(--accent);color:#fff}
+.tbtn-new{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;background:var(--accent);color:#fff;transition:background .15s}
+.tbtn-new:hover{filter:brightness(1.1)}
+.brand{color:var(--accent)}
 body.light .mbox,body.light .ebox{background:#fdfaf7;border-color:#d8cfc4;box-shadow:0 8px 32px rgba(80,50,20,.18)}
 body.light .ac-list{background:#fdfaf7;border-color:#d8cfc4;box-shadow:0 4px 16px rgba(80,50,20,.15)}
 body.light .aci:hover,.aci.fc{background:#f0ebe4}
@@ -125,6 +135,16 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);height:100vh
 
 /* TOPBAR */
 #topbar{display:flex;align-items:center;gap:10px;padding:0 14px;height:46px;background:var(--surf);border-bottom:1px solid var(--border);flex-shrink:0;z-index:60}
+.tbtn{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:500;background:var(--surf2);color:var(--text1);transition:background .15s;white-space:nowrap}
+.tbtn:hover{background:var(--surf3)}
+.tbtn:disabled{opacity:.45;cursor:default}
+.tbtn-icon{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border:none;border-radius:5px;cursor:pointer;font-size:15px;background:var(--surf2);color:var(--text1);transition:background .15s}
+.tbtn-icon:hover{background:var(--surf3)}
+.tbtn-icon:disabled{opacity:.45;cursor:default}
+.tbtn-sm{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:none;border-radius:5px;cursor:pointer;font-size:11px;font-weight:500;background:var(--surf2);color:var(--text1)}
+.tbtn-sm.on{background:var(--accent);color:#fff}
+.tbtn-new{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;background:var(--accent);color:#fff;transition:background .15s}
+.tbtn-new:hover{filter:brightness(1.1)}
 .brand{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--accent);letter-spacing:.08em}
 .brand span{color:var(--text3)}
 #topbar h1{font-size:12px;font-weight:400;color:var(--text2);white-space:nowrap}
@@ -523,33 +543,34 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
 <body>
 
 <div id="topbar">
+  <!-- Left: logo + system buttons -->
   <div class="brand">Planif<span>Pro</span></div>
-  <button class="bg" onclick="openGConfig()" title="Conectar Google Drive" style="font-size:14px;padding:4px 9px">☁</button>
-    <button class="bg" onclick="openBomConfig()" title="Cargar BOM" id="bomBtn" style="font-size:13px">📋</button>
-    <button id="themeBtn" class="bg" onclick="toggleTheme()" title="Cambiar tema claro/oscuro" style="font-size:15px;padding:4px 9px">🌙</button>
+  <button class="tbtn-icon" onclick="openGConfig()" title="Conectar Google Drive" id="driveBtn">☁</button>
+  <button class="tbtn-icon" onclick="openBomConfig()" title="Tabla BOM" id="bomBtn">📋</button>
+  <button class="tbtn-icon" id="themeBtn" onclick="toggleTheme()" title="Cambiar tema">🌙</button>
   <div class="vsep"></div>
-  <h1 id="ttl">Editor de Planificación</h1>
+  <!-- Center: title -->
+  <h1 id="ttl">PlanifPro</h1>
+  <!-- Right: action buttons -->
   <div class="tr">
-    <div style="display:none;gap:4px" id="vtabs">
-      <button class="bv on" id="tabG" onclick="sv('g')">📅 Gantt</button>
-      <button class="bv" id="tabC" onclick="sv('c')">📋 Equipos</button>
+    <div style="display:none;gap:2px" id="vtabs">
+      <button class="tbtn-sm on" id="tabG" onclick="sv('g')">📅 Gantt</button>
+      <button class="tbtn-sm" id="tabC" onclick="sv('c')">📋 Vista</button>
     </div>
     <div class="vsep"></div>
-    <span id="chgBadge">● sin guardar</span>
-    <button class="bg" id="undoBtn" onclick="undo()" disabled title="Ctrl+Z">↩</button>
-    <button class="bg" onclick="openFaltantesPanel()" title="Panel de faltantes">📦 Faltantes</button>
-    <button class="bg" onclick="recalcAllDeadlines()" title="Recalcular todas las fechas límite automáticas" style="font-size:11px;padding:3px 9px">📅 Recalc</button>
-    <button class="bg" onclick="openCalPanel()" title="Calendario laboral">📅</button>
-    <button class="bg" id="fmtBtn" onclick="openFmtPanel()" title="Vista de formatos">🎨</button>
-    <button class="bg" onclick="openDlPanel()" title="Procesos próximos a vencer">⏰</button>
-    <button class="bg" onclick="openLegend()" title="Referencia de colores e íconos">📖</button>
-    <button class="bg" onclick="document.getElementById('fi').click()">📂 Abrir</button>
-    <button class="bg" onclick="document.getElementById('bfi').click()">🧬 BOM</button>
-    <button class="bg" onclick="openEP()">⚙ Equipos</button>
-    <button class="bn" onclick="saveXlsx()">⬇ Excel Gantt</button>
-    <button class="bn" style="background:#2d9e6b" onclick="saveXlsxCols()">⬇ Excel Cols</button>
-    <button class="bw" onclick="saveCsv()">⬇ CSV</button>
-    <button class="bg" onclick="newPlan()">✚ Nuevo</button>
+    <span id="chgBadge" style="font-size:11px">● sin guardar</span>
+    <button class="tbtn-icon" id="undoBtn" onclick="undo()" disabled title="Deshacer (Ctrl+Z)">↩</button>
+    <div class="vsep"></div>
+    <button class="tbtn" onclick="openFaltantesPanel()" title="Faltantes pendientes">📦 Faltantes</button>
+    <button class="tbtn" onclick="openCalPanel()" title="Calendario laboral">📅 Calendario</button>
+    <button class="tbtn" id="fmtBtn" onclick="openFmtPanel()" title="Vista de formatos">🎨 Formatos</button>
+    <button class="tbtn" onclick="openDlPanel()" title="Procesos próximos a vencer">⏰ Límites</button>
+    <button class="tbtn" onclick="recalcAllDeadlines()" title="Recalcular fechas límite">🔄 Recalc</button>
+    <div class="vsep"></div>
+    <button class="tbtn" onclick="document.getElementById('fi').click()" title="Abrir plan desde archivo">📂 Abrir</button>
+    <button class="tbtn" onclick="openEP()" title="Gestionar equipos">⚙ Equipos</button>
+    <button class="tbtn" onclick="openLegend()" title="Referencia">📖 Ayuda</button>
+    <button class="tbtn-new" onclick="newPlan()" title="Nuevo plan">✚ Nuevo</button>
   </div>
 </div>
 
@@ -631,7 +652,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
 </div>
 <input type="file" id="fi" accept=".xlsx,.xls,.csv" onchange="loadFile(event)">
 <input type="file" id="blFi" accept=".xlsx,.xls,.csv" onchange="loadBacklogFile(event)" style="display:none">
-<input type="file" id="bfi" accept=".csv" onchange="loadBomFile(event)">
+
 
 <div id="main">
   <div id="mainRow">
@@ -683,8 +704,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
       </div>
       <div style="background:var(--surf3);border-radius:6px;padding:12px 14px">
         <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Desde archivo local</div>
-        <button class="bp" onclick="document.getElementById('bomFi').click()" style="font-size:12px;padding:5px 14px">📂 Cargar CSV/Excel</button>
-        <input type="file" id="bomFi" accept=".csv,.xlsx,.xls" onchange="loadBomFile(event)" style="display:none">
+        <button class="bp" onclick="triggerBomLoad()" style="font-size:12px;padding:5px 14px">📂 Cargar CSV/Excel</button>
       </div>
       <div style="background:var(--surf3);border-radius:6px;padding:12px 14px">
         <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Desde Google Drive</div>
@@ -1361,6 +1381,36 @@ dzEl.addEventListener('dragleave', ()=>dzEl.classList.remove('over'));
 dzEl.addEventListener('drop', e=>{e.preventDefault();dzEl.classList.remove('over');if(e.dataTransfer.files[0])procFile(e.dataTransfer.files[0])});
 
 function loadFile(e){ procFile(e.target.files[0]); e.target.value=''; }
+function triggerBomLoad(){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='.csv,.xlsx,.xls';
+  inp.addEventListener('change', function(e){
+    const f=e.target.files[0]; if(!f) return;
+    console.log('[BOM] loading:', f.name, f.size+'b');
+    const r=new FileReader();
+    r.onload=ev=>{
+      const cnt=tryBom(ev.target.result);
+      console.log('[BOM] tryBom result:', cnt);
+      if(cnt){
+        toast('✓ BOM: '+cnt+' productos cargados');
+        const btn=document.getElementById('bomBtn');
+        if(btn) btn.style.color='var(--ok)';
+        const st=document.getElementById('bomStatus');
+        if(st) st.textContent='✓ BOM cargada: '+cnt+' productos';
+        try{
+          localStorage.setItem('planifBom', JSON.stringify(bomData.slice(0,5000)));
+          localStorage.setItem('planifBomByProduct', JSON.stringify(bomByProduct));
+        }catch(ex){}
+      } else {
+        toast('❌ No se reconoció el formato — verificá las columnas');
+      }
+    };
+    r.onerror=()=>toast('❌ Error leyendo el archivo');
+    r.readAsText(f,'utf-8');
+  });
+  inp.click();
+}
+
 function loadBomFile(e){
   const f=e.target.files[0]; if(!f) return;
   console.log('[loadBomFile] file:', f.name, f.size, 'bytes');
@@ -5811,6 +5861,36 @@ function applyBom(data){
   const bb=document.getElementById('bomBtn');
   if(bb) bb.style.color='var(--green)';
 }
+function triggerBomLoad(){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='.csv,.xlsx,.xls';
+  inp.addEventListener('change', function(e){
+    const f=e.target.files[0]; if(!f) return;
+    console.log('[BOM] loading:', f.name, f.size+'b');
+    const r=new FileReader();
+    r.onload=ev=>{
+      const cnt=tryBom(ev.target.result);
+      console.log('[BOM] tryBom result:', cnt);
+      if(cnt){
+        toast('✓ BOM: '+cnt+' productos cargados');
+        const btn=document.getElementById('bomBtn');
+        if(btn) btn.style.color='var(--ok)';
+        const st=document.getElementById('bomStatus');
+        if(st) st.textContent='✓ BOM cargada: '+cnt+' productos';
+        try{
+          localStorage.setItem('planifBom', JSON.stringify(bomData.slice(0,5000)));
+          localStorage.setItem('planifBomByProduct', JSON.stringify(bomByProduct));
+        }catch(ex){}
+      } else {
+        toast('❌ No se reconoció el formato — verificá las columnas');
+      }
+    };
+    r.onerror=()=>toast('❌ Error leyendo el archivo');
+    r.readAsText(f,'utf-8');
+  });
+  inp.click();
+}
+
 function loadBomFile(e){
   const file=e.target.files[0]; if(!file) return;
   const r=new FileReader();
