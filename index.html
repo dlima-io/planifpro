@@ -711,6 +711,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
       <div style="background:var(--surf3);border-radius:6px;padding:12px 14px">
         <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Desde archivo local</div>
         <button class="bp" onclick="triggerBomLoad()" style="font-size:12px;padding:5px 14px">📂 Cargar CSV/Excel</button>
+        <button id="bomChangeBtn" class="bp" onclick="clearBomFile()" style="font-size:12px;padding:5px 14px;display:none">🔄 Cambiar archivo BOM</button>
       </div>
       <div style="background:var(--surf3);border-radius:6px;padding:12px 14px">
         <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Desde Google Drive</div>
@@ -1172,6 +1173,8 @@ const CFG = {
 
 let bomData = []; // Load BOM from file or Drive
 let bomByProduct = {}; // idProducto → [{id, nombre, cantidad, tipo}]
+let bomFileId = localStorage.getItem('planifBomFileId')||'';
+let bomFileName = localStorage.getItem('planifBomFileName')||'';
 
 function buildBomIndex(d){ const r={}; for(const p of d) r[p.id]=p; return r; }
 let bomIdx = buildBomIndex(bomData);
@@ -5739,6 +5742,8 @@ async function gReloadFromSheet(){
     initPlan(); initDragDrop();
     renderBacklog(); // Show unscheduled processes in side panel
     await loadFaltantesFromSheet();
+    // Auto-reload BOM if previously selected
+    if(bomFileId && !bomData.length) loadBomFromFileId(bomFileId, bomFileName);
     gSetStatus('ok','☁ '+gSheetName+' — recargado '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
     toast('✓ Plan recargado desde Google Sheets ('+neqs.length+' equipos, '+newBacklog.length+' sin programar)');
     log('DRIVE LOAD','Cargado desde Google Sheets: '+gSheetName);
@@ -5872,13 +5877,26 @@ function gManualReconnect(){
 function openBomConfig(){
   const status=document.getElementById('bomStatus');
   if(status) status.textContent=bomData.length
-    ? `✓ BOM cargada: ${bomData.length} productos`
-    : 'Sin BOM cargada — el autocompletado no está disponible.';
+    ? `✓ BOM: ${bomData.length} productos${bomFileName?' — '+bomFileName:''}`
+    : 'Sin BOM cargada — seleccioná un archivo o conectá desde Drive.';
+  // Show/hide change button
+  const chBtn=document.getElementById('bomChangeBtn');
+  if(chBtn) chBtn.style.display=bomFileId?'block':'none';
   document.getElementById('bomPanel').style.display='flex';
 }
 function closeBomPanel(){
   document.getElementById('bomPanel').style.display='none';
 }
+function clearBomFile(){
+  // Clear saved file reference, keep BOM in memory
+  bomFileId=''; bomFileName='';
+  localStorage.removeItem('planifBomFileId');
+  localStorage.removeItem('planifBomFileName');
+  const chBtn=document.getElementById('bomChangeBtn');
+  if(chBtn) chBtn.style.display='none';
+  toast('Referencia de archivo BOM limpiada — podés seleccionar otro');
+}
+
 function clearBom(){
   bomData=[]; bomIdx={};
   document.getElementById('bomStatus').textContent='Sin BOM cargada.';
@@ -5980,7 +5998,7 @@ async function loadBomFromDrive(){
   if(!gToken){ toast('Primero conectate a Google Drive'); return; }
   gapi.load('picker',()=>{
     const view=new google.picker.View(google.picker.ViewId.DOCS);
-    view.setMimeTypes('text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel');
+    view.setMimeTypes('text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.google-apps.spreadsheet');
     const picker=new google.picker.PickerBuilder()
       .addView(view)
       .setOAuthToken(gToken)
@@ -5988,34 +6006,63 @@ async function loadBomFromDrive(){
       .setCallback(async data=>{
         if(data.action!==google.picker.Action.PICKED) return;
         const file=data.docs[0];
-        const resp=await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
-          {headers:{Authorization:'Bearer '+gToken}});
-        const blob=await resp.blob();
-        const fakeFile=new File([blob],file.name);
-        // Reuse file loader
-        const r=new FileReader();
-        if(file.name.toLowerCase().endsWith('.csv')){
-          r.onload=ev=>{
-            const lines=ev.target.result.replace(/\r\n/g,'\n').split('\n').filter(l=>l.trim());
-            const sep=lines[0].includes(';')?';':',';
-            const hdrs=csvLine(lines[0],sep).map(h=>h.trim());
-            const rows=lines.slice(1).map(l=>{const cols=csvLine(l,sep);const o={};hdrs.forEach((h,i)=>o[h]=cols[i]||'');return o;});
-            applyBom(parseBomRows(rows));
-          };
-          r.readAsText(fakeFile,'utf-8');
-        } else {
-          r.onload=ev=>{
-            const wb=XLSX.read(ev.target.result,{type:'binary'});
-            const ws=wb.Sheets[wb.SheetNames[0]];
-            const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-            applyBom(parseBomRows(rows));
-          };
-          r.readAsBinaryString(fakeFile);
-        }
+        // Save file reference for auto-reload
+        bomFileId=file.id; bomFileName=file.name;
+        localStorage.setItem('planifBomFileId',file.id);
+        localStorage.setItem('planifBomFileName',file.name);
+        await loadBomFromFileId(file.id, file.name);
         closeBomPanel();
       }).build();
     picker.setVisible(true);
   });
+}
+
+async function loadBomFromFileId(fileId, fileName){
+  if(!gToken||!fileId) return;
+  try{
+    let text='';
+    // Check if it's a Google Sheet (export as CSV)
+    const isGSheet=!fileName.match(/\.(csv|xlsx|xls)$/i);
+    const url=isGSheet
+      ?`https://docs.google.com/spreadsheets/d/${fileId}/export?format=csv`
+      :`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+    const resp=await fetch(url,{headers:{Authorization:'Bearer '+gToken}});
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    if(fileName.toLowerCase().endsWith('.xlsx')||fileName.toLowerCase().endsWith('.xls')){
+      const buf=await resp.arrayBuffer();
+      const wb=XLSX.read(buf,{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      const cnt=applyBomRows(rows);
+      updateBomBtn(cnt);
+      toast('✓ BOM: '+cnt+' productos desde Drive');
+    } else {
+      text=await resp.text();
+      const cnt=tryBom(text);
+      updateBomBtn(cnt);
+      if(cnt) toast('✓ BOM: '+cnt+' productos desde Drive');
+      else toast('❌ No se reconoció el formato BOM');
+    }
+  }catch(e){
+    console.warn('Error cargando BOM desde Drive:',e);
+    toast('❌ Error cargando BOM: '+e.message);
+  }
+}
+
+function applyBomRows(rows){
+  // Convert object rows to text and use tryBom logic
+  // Build a pseudo-CSV and call tryBom
+  if(!rows.length) return 0;
+  const hdrs=Object.keys(rows[0]);
+  const lines=[hdrs.join(';'),...rows.map(r=>hdrs.map(h=>String(r[h]||'')).join(';'))];
+  return tryBom(lines.join('\n'));
+}
+
+function updateBomBtn(cnt){
+  const btn=document.getElementById('bomBtn');
+  if(btn) btn.style.color=cnt?'var(--ok)':'';
+  const st=document.getElementById('bomStatus');
+  if(st) st.textContent=cnt?`✓ BOM: ${cnt} productos${bomFileName?' — '+bomFileName:''}`:'Sin BOM cargada';
 }
 
 // Restore BOM from localStorage on startup
