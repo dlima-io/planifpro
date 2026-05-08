@@ -1777,7 +1777,7 @@ function buildContChips(conts){
   return conts.map(co=>{
     const dlStatus=deadlineStatus(co.entry.fechaLimite, co.srcDate);
     const overdue=(dlStatus==='overdue'||dlStatus==='critical'), soon=(dlStatus==='soon'), critical=(dlStatus==='critical');
-    const daysToLimit=e.fechaLimite?Math.floor((new Date(e.fechaLimite+'T00:00:00')-new Date(key+'T00:00:00'))/86400000):null;
+    const daysToLimit=co.entry.fechaLimite?Math.floor((new Date(co.entry.fechaLimite+'T00:00:00')-new Date(co.srcDate+'T00:00:00'))/86400000):null;
     const stC='s'+co.entry.estado;
     // Find original position for dblclick
     const loc=findEntryLocation(co.entry.id);
