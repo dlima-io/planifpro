@@ -879,18 +879,25 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
 </div>
 
 <!-- DEADLINE PANEL -->
-<div id="dlPanel">
-  <div class="dl-box">
-    <div style="display:flex;align-items:center;padding:16px 22px 0;gap:10px">
-      <h2 style="font-size:15px;font-weight:600;flex:1">⏰ Procesos próximos a vencer</h2>
-      <div style="font-size:11px;color:var(--text3)">próximas 3 semanas desde hoy</div>
-      <button onclick="closeDlPanel()" style="background:none;border:none;font-size:22px;color:var(--text3);cursor:pointer;padding:0;line-height:1">×</button>
+<div id="dlPanel" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:900;align-items:flex-start;justify-content:center;padding:20px;box-sizing:border-box" onclick="if(event.target===this)closeDlPanel()">
+  <div style="background:var(--surf);border-radius:12px;width:100%;max-width:1400px;max-height:calc(100vh - 40px);display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);gap:12px;flex-shrink:0">
+      <span style="font-size:16px;font-weight:700">⏰ Fechas límite</span>
+      <div style="display:flex;gap:4px;margin-left:8px">
+        <button id="dlTabSched" class="tbtn-sm on" onclick="dlTab='sched';renderDlSection()">📅 Programados</button>
+        <button id="dlTabBack" class="tbtn-sm" onclick="dlTab='back';renderDlSection()">📦 Sin programar</button>
+      </div>
+      <div style="flex:1"></div>
+      <button class="tbtn-icon" onclick="closeDlPanel()">✕</button>
     </div>
-    <div class="dl-tabs">
-      <div class="dl-tab on" id="dlTabSched" onclick="switchDlTab('sched')">📅 Programados</div>
-      <div class="dl-tab" id="dlTabBack" onclick="switchDlTab('back')">📦 Sin programar</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);flex-shrink:0">
+      <div style="background:var(--surf2);padding:8px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--text2)">DÍG. 5 — 45 días</div>
+      <div style="background:var(--surf2);padding:8px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--text2)">DÍG. 6 — 60 días</div>
+      <div style="background:var(--surf2);padding:8px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--text2)">DÍG. 7 — 90 días</div>
+      <div style="background:var(--surf2);padding:8px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--text2)">DÍG. 8 — Manual</div>
+      <div style="background:var(--surf2);padding:8px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--text2)">DÍG. 9 — Manual</div>
     </div>
-    <div id="dlSection" class="dl-section"></div>
+    <div id="dlSection" style="overflow-y:auto;flex:1;padding:0"></div>
   </div>
 </div>
 
@@ -1769,7 +1776,8 @@ function buildContChips(conts){
   if(!conts||!conts.length) return '';
   return conts.map(co=>{
     const dlStatus=deadlineStatus(co.entry.fechaLimite, co.srcDate);
-    const overdue=(dlStatus==='overdue'), soon=(dlStatus==='soon');
+    const overdue=(dlStatus==='overdue'||dlStatus==='critical'), soon=(dlStatus==='soon'), critical=(dlStatus==='critical');
+    const daysToLimit=e.fechaLimite?Math.floor((new Date(e.fechaLimite+'T00:00:00')-new Date(key+'T00:00:00'))/86400000):null;
     const stC='s'+co.entry.estado;
     // Find original position for dblclick
     const loc=findEntryLocation(co.entry.id);
@@ -1969,7 +1977,8 @@ function buildChips(eq,key,entries){
   for(let i=0;i<Math.min(entries.length,MAX);i++){
     const e=entries[i];
     const dlStatus=deadlineStatus(e.fechaLimite, key);
-    const overdue=(dlStatus==='overdue'), soon=(dlStatus==='soon');
+    const overdue=(dlStatus==='overdue'||dlStatus==='critical'), soon=(dlStatus==='soon'), critical=(dlStatus==='critical');
+    const daysToLimit=e.fechaLimite?Math.floor((new Date(e.fechaLimite+'T00:00:00')-new Date(key+'T00:00:00'))/86400000):null;
     const hasFalt=!!(e.faltanteIds?.length||e.faltante), hasDeps=e.deps&&e.deps.length>0;
     const faltCount=e.faltanteIds?.length||0;
     const stC='s'+e.estado;
@@ -2007,8 +2016,8 @@ function buildChips(eq,key,entries){
           ${e.formato?`<span class="ctag">${esc(e.formato)}</span>`:''}
         </div>
         <div class="chip-icons">
-          ${overdue?`<span class="chip-icon ov" title="Límite excedido: ${esc(e.fechaLimite)}">🔴</span>`:''}
-          ${(!overdue&&soon)?`<span class="chip-icon soon" title="Límite próximo: ${esc(e.fechaLimite)}">⚡</span>`:''}
+          ${critical?`<span class="chip-icon ov" title="⚠ Proceso después de su fecha límite" style="font-weight:700">🚨</span>`:overdue?`<span class="chip-icon ov" title="Límite excedido: ${esc(e.fechaLimite)}">🔴</span>`:''}
+          ${(!overdue&&!critical&&soon&&daysToLimit!==null)?`<span style="font-size:9px;background:#f59e0b;color:#fff;padding:1px 4px;border-radius:3px;font-weight:700" title="Vence en ${daysToLimit}d">${daysToLimit}d</span>`:''}
           ${hasFalt?`<span class="chip-icon falt" title="${esc(e.faltante)}">⚠</span>`:''}
           ${hasDeps?`<span class="chip-icon dep" title="${e.deps.length} dependencia${e.deps.length>1?'s':''}">🔗</span>`:''}
           ${(e.horas&&e.horas>workdayHours(key,eq))?`<span class="chip-icon span" title="Continúa ${computeSpan(key,e.horas,planDates,eq,alreadyUsed)} días">📅${computeSpan(key,e.horas,planDates,eq,alreadyUsed)}d</span>`:''}
@@ -3992,16 +4001,20 @@ function undo(){
 // ════════════ UTILS ════════════
 // ── Deadline status helper ──
 const DAYS_WARN = CFG.DL_DIAS_PRONTO;
-function deadlineStatus(fechaLimite, refDateStr){
-  // refDateStr: 'YYYY-MM-DD' string
-  if(!fechaLimite) return null;
-  const lim  = new Date(fechaLimite  + 'T00:00:00');
-  const ref  = new Date(refDateStr   + 'T00:00:00');
-  if(lim <  ref) return 'overdue';
-  const diffMs  = lim.getTime() - ref.getTime();
-  const diffDays = Math.floor(diffMs / 86400000);
-  if(diffDays <= DAYS_WARN) return 'soon';
-  return 'ok';
+function deadlineStatus(fechaLimite, processDateStr){
+  // Returns: 'critical' | 'overdue' | 'soon' | null
+  if(!fechaLimite||!processDateStr) return null;
+  const lim  = new Date(fechaLimite+'T00:00:00');
+  const proc = new Date(processDateStr+'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  // Critical: process scheduled AFTER its own deadline
+  if(proc > lim) return 'critical';
+  // Overdue: deadline already passed today
+  if(lim < today) return 'overdue';
+  // Days between process date and deadline (≤15 = show badge)
+  const daysToLimit = Math.floor((lim - proc) / 86400000);
+  if(daysToLimit <= 15) return 'soon';
+  return null; // no badge needed
 }
 
 // ── Dynamic datalist option injection ──
@@ -4034,7 +4047,7 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function markChg(){
   hasChg=true; updBadge(); gScheduleSave();
   const dlEl=document.getElementById('dlPanel');
-  if(dlEl&&dlEl.classList.contains('open')) renderDlSection();
+  if(dlEl&&dlEl.style.display==='flex') renderDlSection();
 }
 // ════════════ CALENDAR ════════════
 function openCalPanel(){
@@ -4422,119 +4435,119 @@ const DL_DAYS = CFG.DL_DIAS_ALERTA; // 3 weeks
 
 function openDlPanel(){
   dlTab='sched';
-  document.getElementById('dlTabSched').className='dl-tab on';
-  document.getElementById('dlTabBack').className='dl-tab';
   renderDlSection();
-  document.getElementById('dlPanel').classList.add('open');
+  document.getElementById('dlPanel').style.display='flex';
 }
 function closeDlPanel(){
-  document.getElementById('dlPanel').classList.remove('open');
+  document.getElementById('dlPanel').style.display='none';
 }
 function switchDlTab(tab){
   dlTab=tab;
-  document.getElementById('dlTabSched').className='dl-tab'+(tab==='sched'?' on':'');
-  document.getElementById('dlTabBack').className='dl-tab'+(tab==='back'?' on':'');
   renderDlSection();
 }
 
 function renderDlSection(){
   const el=document.getElementById('dlSection');
+  if(!el) return;
   const today=new Date(); today.setHours(0,0,0,0);
-  const cutoff=new Date(today); cutoff.setDate(cutoff.getDate()+DL_DAYS);
+  const todayStr=dk(today);
+  const digits=['5','6','7','8','9'];
 
-  if(dlTab==='sched'){
-    // Collect scheduled processes with fechaLimite within 3 weeks
+  function collectItems(isBacklog){
     const items=[];
-    for(const eq of eqs){
-      for(const [date,entries] of Object.entries(grid[eq]||{})){
-        for(const e of (entries||[])){
-          if(!e.fechaLimite) continue;
-          const lim=new Date(e.fechaLimite+'T00:00:00');
-          if(isNaN(lim)) continue; // invalid date
-          const daysFromToday=Math.round((lim-today)/86400000);
-          const isOv=lim<today; // overdue = limit passed today
-          if(!isOv && lim>cutoff) continue; // not overdue and too far away
-          const daysToLim=Math.round((lim-today)/86400000);
-          items.push({e,eq,date,lim,daysToLim,isOv,daysFromToday});
+    if(!isBacklog){
+      for(const eq of eqs){
+        for(const [date,entries] of Object.entries(grid[eq]||{})){
+          for(const e of (entries||[])){
+            const dig=sixthDigit(e.codigo)||'';
+            if(!digits.includes(dig)) continue;
+            if(!e.fechaLimite&&!['8','9'].includes(dig)) continue;
+            items.push({e,eq,date,isBacklog:false});
+          }
         }
       }
+    } else {
+      for(const e of backlog){
+        const dig=sixthDigit(e.codigo)||'';
+        if(!digits.includes(dig)) continue;
+        if(!e.fechaLimite&&!['8','9'].includes(dig)) continue;
+        items.push({e,date:null,isBacklog:true});
+      }
     }
-    // Sort: overdue first, then by daysFromToday asc
-    items.sort((a,b)=>{
-      if(a.isOv!==b.isOv) return a.isOv?-1:1;
-      return a.daysFromToday-b.daysFromToday;
-    });
-    if(!items.length){
-      el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:20px 0;text-align:center">✓ Ningún proceso programado vence en las próximas 3 semanas.</div>';
-      return;
-    }
-    el.innerHTML=items.map(({e,eq,date,lim,daysToLim,isOv,daysFromToday})=>{
-      const cls=isOv?'ov':'soon';
-      const badge=isOv
-        ?`${Math.abs(daysFromToday)}d excedido`
-        :`${daysFromToday}d restantes`;
-      const hasDeps=e.deps&&e.deps.length>0;
-      const eIdx=(grid[eq]?.[date]||[]).indexOf(e);
-      const cardAction=`scrollToProcess('${esc(eq)}','${date}',${eIdx})`;
-      return `<div class="dl-entry ${cls}" style="cursor:pointer">
-        <div class="dl-days-badge ${cls}" onclick="${cardAction}">${badge}</div>
-        <div style="flex:1;min-width:0" onclick="${cardAction}">
-          <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-            ${esc(e.nombre)}</div>
-          <div class="dl-meta">${esc(eq)} · ${dispDate(date)}${e.lote?' · '+esc(e.lote):''}</div>
-          ${hasDeps?'<div style="font-size:10px;color:var(--teal);margin-top:3px">🔗 Tiene dependencias</div>':''}
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-          ${hasDeps?`<button onclick="event.stopPropagation();openModal('${esc(eq)}','${date}',${eIdx})" style="background:none;border:1px solid var(--border2);border-radius:4px;padding:2px 6px;font-size:11px;cursor:pointer;color:var(--text2)" title="Editar proceso">✏️</button>`:''}
-          <div style="font-family:var(--mono);font-size:11px;color:${isOv?'var(--red)':'var(--warn)'}">${esc(e.fechaLimite)}</div>
-        </div>
-      </div>`;
-    }).join('');
-
-  } else {
-    // Backlog processes with fechaLimite within 3 weeks (relative to today)
-    const items=[];
-    for(const e of backlog){
-      if(!e.fechaLimite) continue;
-      const lim=new Date(e.fechaLimite+'T00:00:00');
-      if(isNaN(lim)) continue;
-      const daysFromToday=Math.round((lim-today)/86400000);
-      const isOv=lim<today;
-      if(!isOv && lim>cutoff) continue;
-      items.push({e,lim,daysFromToday,isOv});
-    }
-    items.sort((a,b)=>{
-      if(a.isOv!==b.isOv) return a.isOv?-1:1;
-      return a.daysFromToday-b.daysFromToday;
-    });
-    if(!items.length){
-      el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:20px 0;text-align:center">✓ Ningún proceso sin programar vence en las próximas 3 semanas.</div>';
-      return;
-    }
-    el.innerHTML=items.map(({e,daysFromToday,isOv})=>{
-      const cls=isOv?'ov':'soon';
-      const badge=isOv
-        ?`${Math.abs(daysFromToday)}d excedido`
-        :`${daysFromToday}d restantes`;
-      const hasDeps2=e.deps&&e.deps.length>0;
-      const blIdx3=backlog.indexOf(e);
-      const blCardAction=`openBacklogEdit(${blIdx3})`;
-      return `<div class="dl-entry ${cls}" style="cursor:pointer" onclick="${blCardAction}">
-        <div class="dl-days-badge ${cls}">${badge}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-            ${esc(e.nombre)}</div>
-          <div class="dl-meta">📦 Sin programar${e.lote?' · '+esc(e.lote):''}</div>
-          ${hasDeps2?'<div style="font-size:10px;color:var(--teal);margin-top:3px">🔗 Tiene dependencias</div>':''}
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-          ${hasDeps2?`<button onclick="event.stopPropagation();openBacklogEdit(${blIdx3})" style="background:none;border:1px solid var(--border2);border-radius:4px;padding:2px 6px;font-size:11px;cursor:pointer;color:var(--text2)" title="Editar">✏️</button>`:''}
-          <div style="font-family:var(--mono);font-size:11px;color:${isOv?'var(--red)':'var(--warn)'}">${esc(e.fechaLimite)}</div>
-        </div>
-      </div>`;
-    }).join('');
+    return items;
   }
+
+  function sortItems(items){
+    return items.sort((a,b)=>{
+      const sa=a.e.fechaLimite&&a.date?deadlineStatus(a.e.fechaLimite,a.date):null;
+      const sb=b.e.fechaLimite&&b.date?deadlineStatus(b.e.fechaLimite,b.date):null;
+      const rank=s=>s==='critical'?0:s==='overdue'?1:s==='soon'?2:3;
+      if(rank(sa)!==rank(sb)) return rank(sa)-rank(sb);
+      const da=a.e.fechaLimite&&a.date?Math.floor((new Date(a.e.fechaLimite+'T00:00:00')-new Date(a.date+'T00:00:00'))/86400000):999;
+      const db=b.e.fechaLimite&&b.date?Math.floor((new Date(b.e.fechaLimite+'T00:00:00')-new Date(b.date+'T00:00:00'))/86400000):999;
+      return da-db;
+    });
+  }
+
+  function renderCard(item){
+    const {e,eq,date,isBacklog}=item;
+    const lim=e.fechaLimite?new Date(e.fechaLimite+'T00:00:00'):null;
+    const proc=date?new Date(date+'T00:00:00'):null;
+    const status=lim&&proc?deadlineStatus(e.fechaLimite,date):null;
+    const daysLeft=lim&&proc?Math.floor((lim-proc)/86400000):null;
+    const isCrit=status==='critical', isOv=status==='overdue', isSoon=status==='soon';
+    const hasDeps=e.deps&&e.deps.length>0;
+    const eIdx=eq&&date?(grid[eq]?.[date]||[]).indexOf(e):-1;
+    let border='var(--border)';
+    if(isCrit) border='#dc2626';
+    else if(isOv) border='#f59e0b';
+    else if(isSoon) border='#6366f1';
+    let badge='';
+    if(isCrit) badge=`<span style="background:#dc2626;color:#fff;font-size:9px;padding:2px 5px;border-radius:3px;font-weight:700">🚨 CRÍTICO</span>`;
+    else if(isOv) badge=`<span style="background:#f59e0b;color:#fff;font-size:9px;padding:2px 5px;border-radius:3px;font-weight:700">VENCIDO</span>`;
+    else if(isSoon&&daysLeft!==null) badge=`<span style="background:#6366f1;color:#fff;font-size:9px;padding:2px 5px;border-radius:3px;font-weight:700">${daysLeft}d</span>`;
+    const clickFn=!isBacklog&&eq&&date&&eIdx>=0
+      ?`closeDlPanel();scrollToProcess('${esc(eq)}','${date}',${eIdx})`
+      :`closeDlPanel()`;
+    // Dependency indicator: find deps in current view
+    const allItems=collectItems(dlTab==='backlog');
+    const allIds=new Set(allItems.map(i=>i.e.id));
+    const depNames=(e.deps||[]).map(d=>d.targetId).filter(id=>id&&allIds.has(id)).map(id=>{
+      const dep=allItems.find(i=>i.e.id===id);
+      return dep?dep.e.nombre.slice(0,20):'';
+    }).filter(Boolean);
+    return `<div onclick="${clickFn}" style="border:1.5px solid ${border};border-radius:7px;padding:8px 10px;background:var(--surf2);cursor:pointer;display:flex;flex-direction:column;gap:4px;transition:box-shadow .15s">
+      <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">${badge}${hasDeps?'<span style="font-size:9px;color:var(--teal)">🔗</span>':''}</div>
+      <div style="font-size:11px;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(e.nombre)}</div>
+      ${e.lote?`<div style="font-size:10px;color:var(--text3)">L${esc(e.lote)}</div>`:''}
+      ${date?`<div style="font-size:10px;color:var(--text2)">📅 ${dispDate(date)}</div>`:'<div style="font-size:10px;color:var(--text3)">Sin programar</div>'}
+      ${e.fechaLimite?`<div style="font-size:10px;font-weight:600;color:${isCrit?'#dc2626':isOv?'#f59e0b':'var(--text2)'}">⏰ ${e.fechaLimite}</div>`:'<div style="font-size:10px;color:var(--text3);font-style:italic">Sin fecha límite</div>'}
+      ${depNames.length?`<div style="font-size:9px;color:var(--teal);border-top:1px solid var(--border);padding-top:3px;margin-top:2px">← ${depNames.join(' · ')}</div>`:''}
+    </div>`;
+  }
+
+  const isBacklog=dlTab==='back';
+  const allItems=collectItems(isBacklog);
+  const sorted=sortItems([...allItems]);
+  const byDigit={};
+  digits.forEach(d=>byDigit[d]=[]);
+  for(const item of sorted){
+    const dig=sixthDigit(item.e.codigo)||'';
+    if(byDigit[dig]) byDigit[dig].push(item);
+  }
+  const cols=digits.map(dig=>{
+    const items=byDigit[dig];
+    if(!items.length) return `<div style="display:flex;flex-direction:column;gap:8px;padding:12px;background:var(--surf);min-height:60px"><div style="color:var(--text3);font-size:11px;text-align:center;padding-top:16px">—</div></div>`;
+    return `<div style="display:flex;flex-direction:column;gap:8px;padding:12px;background:var(--surf)">${items.map(i=>renderCard(i)).join('')}</div>`;
+  });
+  el.innerHTML=`<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border)">${cols.join('')}</div>`;
+  // Update tab buttons
+  const ts=document.getElementById('dlTabSched');
+  const tb=document.getElementById('dlTabBack');
+  if(ts) ts.className='tbtn-sm'+(dlTab==='sched'?' on':'');
+  if(tb) tb.className='tbtn-sm'+(dlTab==='back'?' on':'');
 }
+
 
 // ════════════ DEP CHAIN PANEL ════════════
 
