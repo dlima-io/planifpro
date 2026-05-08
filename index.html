@@ -4708,32 +4708,67 @@ function navigateToFaltante(id){
   const f=faltantes.get(id);
   if(!f||!(f.procesosIds||[]).length) return;
   // Find the process with the nearest upcoming date
+  const today=dk(new Date());
   let bestEntry=null, bestDate=null;
   for(const pid of f.procesosIds){
     for(const eq of eqs){
       for(const [date, entries] of Object.entries(grid[eq]||{})){
         const entry=entries.find(e=>e.id===pid);
-        if(entry && (!bestDate || date < bestDate)){
-          bestDate=date; bestEntry={entry, eq, date};
-        }
+        if(!entry) continue;
+        // Prefer nearest upcoming date; fall back to any date
+        const isUpcoming = date >= today;
+        const isBetter = !bestDate
+          || (isUpcoming && bestDate < today)  // upcoming beats past
+          || (isUpcoming && date < bestDate)   // closer upcoming
+          || (!isUpcoming && bestDate < today && date > bestDate); // closer past
+        if(isBetter){ bestDate=date; bestEntry={entry, eq, date}; }
       }
     }
   }
   if(!bestEntry){ toast('Proceso no encontrado en el Gantt'); return; }
-  closeFaltantesPanel();
-  // Scroll to the date and highlight
-  const th=document.querySelector(`th[data-date="${bestEntry.date}"]`);
-  if(th) th.scrollIntoView({behavior:'smooth', inline:'center'});
-  // Highlight the chip briefly
+  // Don't close panel — scroll the Gantt to the date
+  // Make sure the date is in the current range; if not, adjust range
+  const inRange=planDates.some(pd=>pd.key===bestEntry.date);
+  if(!inRange){
+    // Set range to include bestDate
+    const bd=new Date(bestEntry.date+'T00:00:00');
+    const ym=bd.getFullYear()+'-'+('0'+(bd.getMonth()+1)).slice(-2);
+    const sfEl=document.getElementById('sf');
+    if(sfEl&&sfEl.value>ym) sfEl.value=ym;
+    const stEl=document.getElementById('st');
+    const endYm=bd.getFullYear()+'-'+('0'+(bd.getMonth()+2<=12?bd.getMonth()+2:1)).slice(-2);
+    if(stEl&&stEl.value<ym) stEl.value=endYm;
+    buildRange(); renderGantt();
+  }
+  // Scroll to the th header cell for that date
   setTimeout(()=>{
-    const chip=document.querySelector(`.chip[data-eq="${CSS.escape(bestEntry.eq)}"][data-date="${bestEntry.date}"][data-id="${bestEntry.entry.id}"]`);
-    if(chip){
-      chip.style.outline='3px solid var(--accent)';
-      chip.style.outlineOffset='2px';
-      setTimeout(()=>{chip.style.outline='';chip.style.outlineOffset='';},2500);
+    // Try th with data-date, or any th containing the date text
+    let target=document.querySelector(`th[data-date="${bestEntry.date}"]`);
+    if(!target){
+      // Fallback: find th by date text
+      const disp=dispDate(bestEntry.date);
+      document.querySelectorAll('th').forEach(th=>{
+        if(th.textContent.includes(disp.slice(0,5))) target=th;
+      });
     }
-  },400);
-  toast(`📍 ${bestEntry.entry.nombre} — ${dispDate(bestEntry.date)}`);
+    if(target){
+      target.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
+    }
+    // Highlight chip after scroll settles
+    setTimeout(()=>{
+      // Try multiple selector strategies
+      let chip=document.querySelector(`.chip[data-id="${bestEntry.entry.id}"]`);
+      if(!chip) chip=document.querySelector(`[data-eq="${CSS.escape(bestEntry.eq)}"][data-date="${bestEntry.date}"]`);
+      if(chip){
+        chip.scrollIntoView({behavior:'smooth', block:'nearest', inline:'center'});
+        chip.style.outline='3px solid #6366f1';
+        chip.style.outlineOffset='2px';
+        chip.style.transition='outline .3s';
+        setTimeout(()=>{ chip.style.outline=''; chip.style.outlineOffset=''; },2500);
+      }
+    },600);
+  },100);
+  toast(`📍 ${bestEntry.entry.nombre.slice(0,35)} — ${dispDate(bestEntry.date)}`);
 }
 
 function editFaltanteFecha(id){
