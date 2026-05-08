@@ -3320,12 +3320,18 @@ function openModal(eq,date,idx){
   const cellDateForWarn = date || dk(new Date());
   const warnStatus = deadlineStatus(lim, cellDateForWarn);
   const owarnEl = document.getElementById('owarn');
-  if(warnStatus==='overdue'){
+  if(warnStatus==='critical'){
     owarnEl.style.display='block';
     owarnEl.style.background='rgba(239,68,68,.1)';
     owarnEl.style.borderColor='rgba(239,68,68,.3)';
     owarnEl.style.color='var(--red)';
-    owarnEl.textContent='🔴 La fecha límite es anterior a la fecha programada — el límite ya se excedió.';
+    owarnEl.textContent='🚨 La fecha límite ('+lim+') es ANTERIOR a la fecha programada ('+cellDateForWarn+') — este proceso no puede cumplirse a tiempo.';
+  } else if(warnStatus==='overdue'){
+    owarnEl.style.display='block';
+    owarnEl.style.background='rgba(245,158,11,.1)';
+    owarnEl.style.borderColor='rgba(245,158,11,.3)';
+    owarnEl.style.color='var(--warn)';
+    owarnEl.textContent='⚠ La fecha límite ('+lim+') ya venció hoy.';
   } else if(warnStatus==='soon'){
     owarnEl.style.display='block';
     owarnEl.style.background='rgba(245,158,11,.1)';
@@ -4462,6 +4468,10 @@ function renderDlSection(){
             const dig=sixthDigit(e.codigo)||'';
             if(!digits.includes(dig)) continue;
             if(!e.fechaLimite&&!['8','9'].includes(dig)) continue;
+            // Skip processes fully in the past with expired deadline (nothing to do)
+            const lim2=e.fechaLimite?new Date(e.fechaLimite+'T00:00:00'):null;
+            const proc2=new Date(date+'T00:00:00');
+            if(lim2&&lim2<today&&proc2<today&&proc2<=lim2) continue;
             items.push({e,eq,date,isBacklog:false});
           }
         }
