@@ -686,7 +686,13 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
       <div id="backlogHeader" onclick="toggleBacklog()">
         <span id="backlogChevron">◀</span>
         <span id="backlogTitle">📦 Sin programar <span id="backlogCount" style="color:var(--purple);font-family:var(--mono)"></span></span>
-        <div id="backlogActions">
+        <div id="backlogActions" style="display:flex;align-items:center;gap:3px;flex-wrap:wrap">
+          <select id="blSortBase" onchange="backlogSortBase=this.value;updateBlSortUI();renderBacklog()" onclick="event.stopPropagation()" style="font-size:10px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text1)" title="Ordenamiento base">
+            <option value="original">↕ Original</option>
+            <option value="digito">🔢 6to dígito</option>
+          </select>
+          <button id="blSortFmtBtn" onclick="event.stopPropagation();backlogSortFormato=!backlogSortFormato;updateBlSortUI();renderBacklog()" style="font-size:10px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text1);cursor:pointer;display:none" title="Agrupar por formato dentro del dígito">🎨</button>
+          <button id="blSortFechaBtn" onclick="event.stopPropagation();backlogSortFecha=!backlogSortFecha;updateBlSortUI();renderBacklog()" style="font-size:10px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text1);cursor:pointer" title="Fecha límite más urgente primero">📅</button>
           <button class="bg" style="font-size:11px;padding:2px 7px" onclick="event.stopPropagation();openBacklogImport()" title="Importar procesos">+</button>
           <button class="bg" style="font-size:11px;padding:2px 7px" onclick="event.stopPropagation();clearBacklog()" title="Vaciar backlog">✕</button>
         </div>
@@ -1381,6 +1387,9 @@ let depHi = null;
 let linkMode = false; // drag-to-link mode
 let backlog = [];     // unscheduled entries [{...entry, _blId}]
 let backlogOpen = true;
+let backlogSortBase = 'original';  // 'original' | 'digito'
+let backlogSortFormato = false;    // only active when base='digito'
+let backlogSortFecha = false;      // always combinable
 let clipboard = null; // {entries:[], isCut:bool, srcEquip, srcDate, srcIndices}
 let ctxTarget = null; // {equip, date, idx} — right-clicked target for paste // {equip, date, idx} — chip being highlighted
 
@@ -2287,6 +2296,22 @@ function ctxDelEntry(){
 }
 
 // ════════════ BACKLOG ════════════
+function updateBlSortUI(){
+  const fmtBtn=document.getElementById('blSortFmtBtn');
+  const fechaBtn=document.getElementById('blSortFechaBtn');
+  const base=document.getElementById('blSortBase');
+  if(fmtBtn){
+    fmtBtn.style.display=backlogSortBase==='digito'?'inline-block':'none';
+    fmtBtn.style.background=backlogSortFormato&&backlogSortBase==='digito'?'var(--accent)':'var(--surf2)';
+    fmtBtn.style.color=backlogSortFormato&&backlogSortBase==='digito'?'#fff':'var(--text1)';
+    if(backlogSortBase!=='digito') backlogSortFormato=false;
+  }
+  if(fechaBtn){
+    fechaBtn.style.background=backlogSortFecha?'var(--accent)':'var(--surf2)';
+    fechaBtn.style.color=backlogSortFecha?'#fff':'var(--text1)';
+  }
+}
+
 function toggleBacklog(){
   backlogOpen=!backlogOpen;
   document.getElementById('backlogPanel').classList.toggle('collapsed',!backlogOpen);
@@ -2426,14 +2451,45 @@ function renderBacklog(){
   count.textContent=backlog.length?'('+backlog.length+')':'';
   if(!backlog.length){
     empty.style.display='block';
-    // Remove all bl-chips
     scroll.querySelectorAll('.bl-chip').forEach(el=>el.remove());
     return;
   }
   empty.style.display='none';
-  // Rebuild
   scroll.querySelectorAll('.bl-chip').forEach(el=>el.remove());
-  backlog.forEach((entry,i)=>{
+
+  // Build sorted index array (original indices preserved for blIdx)
+  const FAR='9999-99-99';
+  let indices=[...backlog.keys()];
+
+  if(backlogSortBase==='digito'){
+    indices.sort((a,b)=>{
+      const ea=backlog[a], eb=backlog[b];
+      const da=sixthDigit(ea.codigo)||'~'; // ~ sorts after 9
+      const db=sixthDigit(eb.codigo)||'~';
+      if(da!==db) return da.localeCompare(db);
+      // Level 2: formato (only if enabled)
+      if(backlogSortFormato){
+        const fa=ea.formato||'~', fb=eb.formato||'~';
+        if(fa!==fb) return fa.localeCompare(fb);
+      }
+      // Level 3: fecha límite (only if enabled)
+      if(backlogSortFecha){
+        return (ea.fechaLimite||FAR).localeCompare(eb.fechaLimite||FAR);
+      }
+      return 0;
+    });
+  } else if(backlogSortFecha){
+    // Original order but sorted by fecha límite
+    indices.sort((a,b)=>{
+      const fa=backlog[a].fechaLimite||FAR;
+      const fb=backlog[b].fechaLimite||FAR;
+      return fa.localeCompare(fb);
+    });
+  }
+  // else: original order (indices already in order)
+
+  indices.forEach(i=>{
+    const entry=backlog[i];
     const div=document.createElement('div');
     div.className='bl-chip';
     div.dataset.blIdx=i;
@@ -2528,9 +2584,22 @@ function drawBlDepLines(blIdx, srcEl){
   const unscheduled = [];
   let foundInGantt = 0;
 
+  const outOfRange=[]; // deps that are scheduled but outside visible range
   for(const dep of entry.deps){
     const loc = dep.targetId ? findEntryLocation(dep.targetId) : null;
     if(loc){
+      // Check if the date is in the visible planDates range
+      const inRange = planDates.some(pd=>pd.key===loc.date);
+      if(!inRange){
+        // Out of range — collect for popover
+        const depEntry=findEntryById(dep.targetId);
+        outOfRange.push({
+          nombre: depEntry?depEntry.nombre:'(proceso)',
+          equip: loc.equip,
+          date: loc.date,
+        });
+        continue;
+      }
       // Highlight the gantt chip
       const depEl = findChipEl(loc.equip, loc.date, loc.idx);
       if(depEl){
@@ -2593,8 +2662,8 @@ function drawBlDepLines(blIdx, srcEl){
     toast('🔗 '+foundInGantt+' dependencia'+(foundInGantt>1?'s resaltadas':' resaltada')+' en el Gantt');
   }
 
-  // Show floating list of unscheduled deps near the source chip
-  if(unscheduled.length){
+  // Show floating list with unscheduled + out-of-range deps
+  if(unscheduled.length||outOfRange.length){
     const listEl = document.createElement('div');
     listEl.id = 'blDepList';
     listEl.style.cssText = `position:fixed;z-index:200;background:var(--surf2);
@@ -2602,11 +2671,26 @@ function drawBlDepLines(blIdx, srcEl){
       font-size:11px;box-shadow:0 4px 16px rgba(0,0,0,.4);max-width:260px;
       left:${Math.max(4, srcR.left - 270)}px;
       top:${srcR.top}px;`;
-    listEl.innerHTML = '<div style="font-size:10px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em">Dependencias sin programar</div>' +
-      unscheduled.map(d=>`<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
+    const sections=[];
+    if(outOfRange.length){
+      sections.push('<div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em">Fuera del rango visible</div>');
+      sections.push(outOfRange.map(d=>`<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
+        <span style="color:var(--teal)">📅</span>
+        <div style="overflow:hidden">
+          <div style="color:var(--text);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.nombre.slice(0,30))}</div>
+          <div style="color:var(--text3);font-size:10px">${esc(d.equip)} · ${dispDate(d.date)}</div>
+        </div>
+      </div>`).join(''));
+    }
+    if(unscheduled.length){
+      if(outOfRange.length) sections.push('<div style="border-top:1px solid var(--border);margin:6px 0"></div>');
+      sections.push('<div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em">Sin programar</div>');
+      sections.push(unscheduled.map(d=>`<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
         <span style="color:${d.inBl?'var(--warn)':'var(--red)'}">${d.inBl?'📦':'✗'}</span>
         <span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name)}</span>
-      </div>`).join('');
+      </div>`).join(''));
+    }
+    listEl.innerHTML = sections.join('');
     document.body.appendChild(listEl);
   }
 }
