@@ -2478,6 +2478,7 @@ function renderBacklog(){
     d.textContent=label; scroll.appendChild(d);
   }
   function addBlChip(entry,i){
+    const div=document.createElement('div');
     div.className='bl-chip';
     div.dataset.blIdx=i;
     div.title=entry.nombre+(entry.lote?' · '+entry.lote:'')+(entry.horas?' · '+entry.horas+'h':'');
