@@ -5537,6 +5537,40 @@ function gPickerCallback(data){
 }
 
 // ── SAVE to Google Sheets ─────────────────────────────────────────
+async function gWriteMissingIds(){
+  if(!gToken||!gSheetId) return;
+  // Find all entries that have _rowNum (loaded from sheet) and need their ID written back
+  const updates=[];
+  const iID_col = gSheetColOrder ? gSheetColOrder.map(h=>h.toLowerCase()).indexOf('id') : -1;
+  if(iID_col < 0) return; // no ID column in sheet
+  for(const eq of eqs){
+    for(const entries of Object.values(grid[eq]||{})){
+      for(const entry of entries){
+        if(entry._rowNum && entry.id){
+          updates.push({r:entry._rowNum, c:iID_col+1, v:entry.id});
+        }
+      }
+    }
+  }
+  for(const entry of backlog){
+    if(entry._rowNum && entry.id){
+      updates.push({r:entry._rowNum, c:iID_col+1, v:entry.id});
+    }
+  }
+  if(!updates.length) return;
+  try{
+    const data=updates.map(u=>({
+      range:`Planificacion!${colLetter(u.c)}${u.r}`,
+      values:[[u.v]]
+    }));
+    await gApiRequest('POST',
+      `https://sheets.googleapis.com/v4/spreadsheets/${gSheetId}/values:batchUpdate?valueInputOption=RAW`,
+      {data, valueInputOption:'RAW'}
+    );
+    log('IDS AUTO','IDs escritos en '+updates.length+' filas del Sheet');
+  }catch(e){ console.warn('Error escribiendo IDs:', e.message); }
+}
+
 function gScheduleSave(){
   if(!gConnected||!gSheetId) return;
   clearTimeout(gSaveTimer);
@@ -5573,6 +5607,10 @@ async function gSaveNow(){
       if(id) rowByID[id] = i;
     }
 
+    // Also build rowByID by _rowNum for entries whose ID wasn't in Sheet yet
+    // (Sheet had empty ID column — we assigned IDs on load, need to write them back)
+    const rowByRowNum = {}; // rowNum → rowIndex (for entries loaded by position)
+
     // Collect all current entries with their positions
     const updates = []; // {range, values}
     const newRows = []; // entries not yet in Sheet (need to append)
@@ -5582,11 +5620,14 @@ async function gSaveNow(){
       for(const [date, entries] of Object.entries(grid[eq]||{})){
         entries.forEach((entry, posIdx) => {
           entry._pos = posIdx + 1; // 1-based position
-          const rowIdx = rowByID[entry.id];
+          // Try to find by ID first, then by _rowNum (for entries with empty ID in sheet)
+          let rowIdx = rowByID[entry.id];
+          if(rowIdx === undefined && entry._rowNum){
+            rowIdx = entry._rowNum - 1; // _rowNum is 1-based, rowByID is 0-based index
+          }
           if(rowIdx !== undefined){
-            // Update existing row: Equipo, Fecha, Estado, F.Límite, Pos.
-            // Find obs and faltante column indices
-
+            // Update existing row — always write ID back (in case sheet had empty ID)
+            if(iID>=0) updates.push({r:rowIdx+1, c:iID+1, v:entry.id});
             if(iE>=0) updates.push({r:rowIdx+1, c:iE+1, v:eq});
             if(iD>=0) updates.push({r:rowIdx+1, c:iD+1, v:date});
             if(iSt>=0) updates.push({r:rowIdx+1, c:iSt+1, v:stLabel(entry.estado)});
@@ -5604,17 +5645,18 @@ async function gSaveNow(){
     }
     // Backlog entries — clear equipo/fecha if they exist in Sheet
     for(const entry of backlog){
-      const rowIdx = rowByID[entry.id];
-      if(rowIdx !== undefined){
-
-        if(iE>=0) updates.push({r:rowIdx+1, c:iE+1, v:''});
-        if(iD>=0) updates.push({r:rowIdx+1, c:iD+1, v:''});
-        if(iSt>=0) updates.push({r:rowIdx+1, c:iSt+1, v:stLabel(entry.estado)});
-        if(iFL>=0) updates.push({r:rowIdx+1, c:iFL+1, v:entry.fechaLimite||''});
-        if(iPos>=0) updates.push({r:rowIdx+1, c:iPos+1, v:''});
-        if(iObsG>=0) updates.push({r:rowIdx+1, c:iObsG+1, v:entry.obs||''});
-        if(iFAG>=0) updates.push({r:rowIdx+1, c:iFAG+1, v:entry.faltante||''});
-        if(iDepsG>=0) updates.push({r:rowIdx+1, c:iDepsG+1, v:(entry.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';')});
+      let blRowIdx = rowByID[entry.id];
+      if(blRowIdx === undefined && entry._rowNum) blRowIdx = entry._rowNum - 1;
+      if(blRowIdx !== undefined){
+        if(iID>=0) updates.push({r:blRowIdx+1, c:iID+1, v:entry.id});
+        if(iE>=0) updates.push({r:blRowIdx+1, c:iE+1, v:''});
+        if(iD>=0) updates.push({r:blRowIdx+1, c:iD+1, v:''});
+        if(iSt>=0) updates.push({r:blRowIdx+1, c:iSt+1, v:stLabel(entry.estado)});
+        if(iFL>=0) updates.push({r:blRowIdx+1, c:iFL+1, v:entry.fechaLimite||''});
+        if(iPos>=0) updates.push({r:blRowIdx+1, c:iPos+1, v:''});
+        if(iObsG>=0) updates.push({r:blRowIdx+1, c:iObsG+1, v:entry.obs||''});
+        if(iFAG>=0) updates.push({r:blRowIdx+1, c:iFAG+1, v:entry.faltante||''});
+        if(iDepsG>=0) updates.push({r:blRowIdx+1, c:iDepsG+1, v:(entry.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';')});
       }
     }
 
@@ -5872,13 +5914,13 @@ async function gReloadFromSheet(){
     initPlan(); initDragDrop();
     renderBacklog(); // Show unscheduled processes in side panel
     await loadFaltantesFromSheet();
+    await gWriteMissingIds(); // Write IDs back to sheet for rows that had empty ID
     // Auto-reload BOM if previously selected
     if(bomFileId && !bomData.length) loadBomFromFileId(bomFileId, bomFileName);
     gSetStatus('ok','☁ '+gSheetName+' — recargado '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
     toast('✓ Plan recargado desde Google Sheets ('+neqs.length+' equipos, '+newBacklog.length+' sin programar)');
     log('DRIVE LOAD','Cargado desde Google Sheets: '+gSheetName);
-    // Auto-save immediately to persist any new IDs assigned to rows that had empty ID column
-    setTimeout(gSaveNow, 1500);
+    // IDs are written immediately by gWriteMissingIds() above
   } catch(err){
     gSetStatus('err','Error al cargar: '+err.message);
     toast('❌ Error cargando desde Drive: '+err.message);
