@@ -2457,40 +2457,27 @@ function renderBacklog(){
   empty.style.display='none';
   scroll.querySelectorAll('.bl-chip').forEach(el=>el.remove());
 
-  // Build sorted index array (original indices preserved for blIdx)
   const FAR='9999-99-99';
-  let indices=[...backlog.keys()];
+  const today2=new Date(); today2.setHours(0,0,0,0);
+  const todayStr2=dk(today2);
 
-  if(backlogSortBase==='digito'){
-    indices.sort((a,b)=>{
-      const ea=backlog[a], eb=backlog[b];
-      const da=sixthDigit(ea.codigo)||'~'; // ~ sorts after 9
-      const db=sixthDigit(eb.codigo)||'~';
-      if(da!==db) return da.localeCompare(db);
-      // Level 2: formato (only if enabled)
-      if(backlogSortFormato){
-        const fa=ea.formato||'~', fb=eb.formato||'~';
-        if(fa!==fb) return fa.localeCompare(fb);
-      }
-      // Level 3: fecha límite (only if enabled)
-      if(backlogSortFecha){
-        return (ea.fechaLimite||FAR).localeCompare(eb.fechaLimite||FAR);
-      }
-      return 0;
-    });
-  } else if(backlogSortFecha){
-    // Original order but sorted by fecha límite
-    indices.sort((a,b)=>{
-      const fa=backlog[a].fechaLimite||FAR;
-      const fb=backlog[b].fechaLimite||FAR;
-      return fa.localeCompare(fb);
-    });
+  function fechaBucket(fl){
+    if(!fl) return 3;
+    if(fl<todayStr2) return 0;
+    const d=Math.floor((new Date(fl+'T00:00:00')-today2)/86400000);
+    if(d<=15) return 1; if(d<=30) return 2; return 3;
   }
-  // else: original order (indices already in order)
-
-  indices.forEach(i=>{
-    const entry=backlog[i];
-    const div=document.createElement('div');
+  function blSep(label,color,indent){
+    const d=document.createElement('div');
+    d.style.cssText=`font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:${color||'var(--text2)'};padding:5px ${indent||8}px 2px;margin-top:4px;border-top:1px solid var(--border)`;
+    d.textContent=label; scroll.appendChild(d);
+  }
+  function blSubSep(label,color,indent){
+    const d=document.createElement('div');
+    d.style.cssText=`font-size:10px;font-weight:600;color:${color||'var(--accent)'};padding:3px ${indent||16}px 1px`;
+    d.textContent=label; scroll.appendChild(d);
+  }
+  function addBlChip(entry,i){
     div.className='bl-chip';
     div.dataset.blIdx=i;
     div.title=entry.nombre+(entry.lote?' · '+entry.lote:'')+(entry.horas?' · '+entry.horas+'h':'');
@@ -2509,7 +2496,48 @@ function renderBacklog(){
     // Drag
     div.addEventListener('mousedown', blDragStart);
     scroll.appendChild(div);
-  });
+  }
+
+  const bucketLabel=['⚠ Vencidos','📅 ≤ 15 días','📅 ≤ 30 días','📅 + 30 días'];
+  const bucketColor=['#dc2626','#f59e0b','#6366f1','var(--text3)'];
+  const digNames={'3':'Dígito 3','4':'Dígito 4','5':'Dígito 5 — 45d','6':'Dígito 6 — 60d','7':'Dígito 7 — 90d','8':'Dígito 8','9':'Dígito 9'};
+
+  let indices=[...backlog.keys()];
+
+  if(backlogSortBase==='digito'){
+    indices.sort((a,b)=>{
+      const ea=backlog[a],eb=backlog[b];
+      const da=sixthDigit(ea.codigo)||'~',db=sixthDigit(eb.codigo)||'~';
+      if(da!==db) return da.localeCompare(db);
+      if(backlogSortFormato){const fa=ea.formato||'~',fb=eb.formato||'~';if(fa!==fb) return fa.localeCompare(fb);}
+      if(backlogSortFecha) return (fechaBucket(ea.fechaLimite)-fechaBucket(eb.fechaLimite))||((ea.fechaLimite||FAR).localeCompare(eb.fechaLimite||FAR));
+      return 0;
+    });
+    let lastDig=null,lastFmt=null,lastBucket=null;
+    indices.forEach(i=>{
+      const entry=backlog[i];
+      const dig=sixthDigit(entry.codigo)||'?',fmt=entry.formato||'Sin formato',bucket=fechaBucket(entry.fechaLimite);
+      if(dig!==lastDig){lastDig=dig;lastFmt=null;lastBucket=null;blSep(digNames[dig]||('Dígito '+dig),'var(--text2)',8);}
+      if(backlogSortFormato&&fmt!==lastFmt){lastFmt=fmt;lastBucket=null;blSubSep('🎨 '+fmt,'var(--accent)',16);}
+      if(backlogSortFecha&&bucket!==lastBucket){lastBucket=bucket;blSubSep(bucketLabel[bucket],bucketColor[bucket],backlogSortFormato?24:16);}
+      addBlChip(entry,i);
+    });
+  } else if(backlogSortFecha){
+    indices.sort((a,b)=>{
+      const ba=fechaBucket(backlog[a].fechaLimite),bb=fechaBucket(backlog[b].fechaLimite);
+      return (ba-bb)||((backlog[a].fechaLimite||FAR).localeCompare(backlog[b].fechaLimite||FAR));
+    });
+    let lastBucket=null;
+    indices.forEach(i=>{
+      const entry=backlog[i];
+      const bucket=fechaBucket(entry.fechaLimite);
+      if(bucket!==lastBucket){lastBucket=bucket;blSep(bucketLabel[bucket],bucketColor[bucket],8);}
+      addBlChip(entry,i);
+    });
+  } else {
+    indices.forEach(i=>addBlChip(backlog[i],i));
+  }
+
 }
 
 function openBacklogEdit(i){
