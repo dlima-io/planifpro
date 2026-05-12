@@ -4209,9 +4209,9 @@ function toggleCalFields(){
   if(hEl&&t==='triple_turno') hEl.value=CFG.HORAS_TRIPLE;
   else if(hEl&&t==='sabado_habilitado') hEl.value=CFG.HORAS_SABADO;
   else if(hEl&&t==='jornada_reducida') hEl.value=CFG.HORAS_REDUCIDA;
-  // Show/hide Hasta field
+  // Show/hide Hasta field for multi-day types
   const hw=document.getElementById('calHastaWrapper');
-  if(hw) hw.style.display=t==='jornada_reducida'?'flex':'none';
+  if(hw) hw.style.display=(t==='jornada_reducida'||t==='triple_turno')?'flex':'none';
 }
 
 function addCalEntry(){
