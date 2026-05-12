@@ -5725,6 +5725,21 @@ async function gSaveNow(){
     // (Sheet had empty ID column — we assigned IDs on load, need to write them back)
     const rowByRowNum = {}; // rowNum → rowIndex (for entries loaded by position)
 
+    // Helper: build human-readable faltante text from linked faltantes
+    function buildFaltanteText(entry){
+      const ids=entry.faltanteIds||[];
+      if(!ids.length) return '';
+      return ids.map(fid=>{
+        const f=faltantes.get(fid);
+        if(!f) return null;
+        const estado=f.estado==='ingreso'?'ingreso':'apto';
+        const fecha=f.estado==='ingreso'?(f.fechaIngreso||f.fecha||''):(f.fechaApto||f.fecha||'');
+        const fechaLabel=f.estado==='ingreso'?'fecha de ingreso':'fecha de apto';
+        const fechaStr=fecha?' ('+fechaLabel+': '+dispDate(fecha)+')':'';
+        return '('+estado+') '+(f.codigo||'')+' '+f.nombre+fechaStr;
+      }).filter(Boolean).join('\n');
+    }
+
     // Collect all current entries with their positions
     const updates = []; // {range, values}
     const newRows = []; // entries not yet in Sheet (need to append)
@@ -5748,7 +5763,7 @@ async function gSaveNow(){
             if(iFL>=0) updates.push({r:rowIdx+1, c:iFL+1, v:entry.fechaLimite||''});
             if(iPos>=0) updates.push({r:rowIdx+1, c:iPos+1, v:posIdx+1});
             if(iObsG>=0) updates.push({r:rowIdx+1, c:iObsG+1, v:entry.obs||''});
-            if(iFAG>=0) updates.push({r:rowIdx+1, c:iFAG+1, v:entry.faltante||''});
+            if(iFAG>=0) updates.push({r:rowIdx+1, c:iFAG+1, v:buildFaltanteText(entry)||entry.faltante||''});
             if(iDepsG>=0) updates.push({r:rowIdx+1, c:iDepsG+1, v:(entry.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';')});
           } else {
             // New entry — needs to be appended
@@ -5769,7 +5784,7 @@ async function gSaveNow(){
         if(iFL>=0) updates.push({r:blRowIdx+1, c:iFL+1, v:entry.fechaLimite||''});
         if(iPos>=0) updates.push({r:blRowIdx+1, c:iPos+1, v:''});
         if(iObsG>=0) updates.push({r:blRowIdx+1, c:iObsG+1, v:entry.obs||''});
-        if(iFAG>=0) updates.push({r:blRowIdx+1, c:iFAG+1, v:entry.faltante||''});
+        if(iFAG>=0) updates.push({r:blRowIdx+1, c:iFAG+1, v:buildFaltanteText(entry)||entry.faltante||''});
         if(iDepsG>=0) updates.push({r:blRowIdx+1, c:iDepsG+1, v:(entry.deps||[]).map(d=>d.targetId||'').filter(Boolean).join(';')});
       }
     }
@@ -5810,7 +5825,7 @@ async function gSaveNow(){
         'f.limite':  (eq,date,e,pos)=>e.fechaLimite||'',
         'límite excedido':(eq,date,e,pos)=>'',
         'limite excedido':(eq,date,e,pos)=>'',
-        'faltante':  (eq,date,e,pos)=>e.faltante||'',
+        'faltante':  (eq,date,e,pos)=>buildFaltanteText(e)||e.faltante||'',
         'pos.':      (eq,date,e,pos)=>pos||'',
         'pos':       (eq,date,e,pos)=>pos||'',
         'posición':  (eq,date,e,pos)=>pos||'',
