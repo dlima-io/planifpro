@@ -5776,7 +5776,14 @@ async function gSaveNow(){
             if(iID>=0) updates.push({r:rowIdx+1, c:iID+1, v:entry.id});
             if(iE>=0) updates.push({r:rowIdx+1, c:iE+1, v:eq});
             if(iD>=0) updates.push({r:rowIdx+1, c:iD+1, v:date});
+            if(iN>=0) updates.push({r:rowIdx+1, c:iN+1, v:entry.nombre||''});
+            if(iC>=0) updates.push({r:rowIdx+1, c:iC+1, v:entry.codigo||''});
+            if(iL>=0) updates.push({r:rowIdx+1, c:iL+1, v:entry.lote||''});
+            if(iQ>=0) updates.push({r:rowIdx+1, c:iQ+1, v:entry.cantidad||''});
+            if(iU>=0) updates.push({r:rowIdx+1, c:iU+1, v:entry.unidad||''});
             if(iSt>=0) updates.push({r:rowIdx+1, c:iSt+1, v:stLabel(entry.estado)});
+            if(iH>=0) updates.push({r:rowIdx+1, c:iH+1, v:entry.horas||''});
+            if(iFm>=0) updates.push({r:rowIdx+1, c:iFm+1, v:entry.formato||''});
             if(iFL>=0) updates.push({r:rowIdx+1, c:iFL+1, v:entry.fechaLimite||''});
             if(iPos>=0) updates.push({r:rowIdx+1, c:iPos+1, v:posIdx+1});
             if(iObsG>=0) updates.push({r:rowIdx+1, c:iObsG+1, v:entry.obs||''});
