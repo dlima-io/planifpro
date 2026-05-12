@@ -1346,26 +1346,27 @@ function isWorkday(dateStr, equip){
 
 // Hours available on a workday (15h normally, 7h on enabled saturday)
 function workdayHours(dateStr, equip){
-  // Triple shift overrides everything
+  const d = new Date(dateStr + 'T00:00:00');
+  // Sábado habilitado — always use saturday hours (never triple/reduced)
+  if(d.getDay() === 6 && enabledSats.has(dateStr)){
+    const sat=enabledSats.get(dateStr);
+    const appliesToAll=!sat.equipos||sat.equipos.length===0;
+    if(appliesToAll||(equip&&sat.equipos.includes(equip)))
+      return sat.horas||CFG.HORAS_SABADO;
+  }
+  // Triple shift
   if(tripleShifts.has(dateStr)){
     const ts=tripleShifts.get(dateStr);
     const appliesToAll=!ts.equipos||ts.equipos.length===0;
     if(appliesToAll||(equip&&ts.equipos.includes(equip)))
       return ts.horas||CFG.HORAS_TRIPLE;
   }
-  // Reduced shift (jornada reducida) — overrides normal 15h
+  // Reduced shift (jornada reducida)
   if(reducedShifts.has(dateStr)){
     const rs=reducedShifts.get(dateStr);
     const appliesToAll=!rs.equipos||rs.equipos.length===0;
     if(appliesToAll||(equip&&rs.equipos.includes(equip)))
       return rs.horas||CFG.HORAS_REDUCIDA;
-  }
-  const d = new Date(dateStr + 'T00:00:00');
-  if(d.getDay() === 6 && enabledSats.has(dateStr)){
-    const sat=enabledSats.get(dateStr);
-    const appliesToAll=!sat.equipos||sat.equipos.length===0;
-    if(appliesToAll||(equip&&sat.equipos.includes(equip)))
-      return sat.horas||CFG.HORAS_SABADO;
   }
   return CFG.HORAS_NORMAL;
 }
@@ -4233,7 +4234,18 @@ function addCalEntry(){
   } else if(type==='triple_turno'){
     const eqs=getCalEquipos();
     const hs=parseFloat(document.getElementById('calHoras').value)||24;
-    tripleShifts.set(date,{desc,equipos:eqs,horas:hs});
+    const hastaT=document.getElementById('calDateHasta')?.value||'';
+    if(hastaT && hastaT>=date){
+      const dCur=new Date(date+'T00:00:00');
+      const dEnd=new Date(hastaT+'T00:00:00');
+      while(dCur<=dEnd){
+        const dateKey=dCur.getFullYear()+'-'+('0'+(dCur.getMonth()+1)).slice(-2)+'-'+('0'+dCur.getDate()).slice(-2);
+        tripleShifts.set(dateKey,{desc,equipos:eqs,horas:hs});
+        dCur.setDate(dCur.getDate()+1);
+      }
+    } else {
+      tripleShifts.set(date,{desc,equipos:eqs,horas:hs});
+    }
   } else if(type==='jornada_reducida'){
     const eqs=getCalEquipos();
     const hs=parseFloat(document.getElementById('calHoras').value)||8;
