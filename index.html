@@ -4597,6 +4597,8 @@ function renderDlSection(){
             const dig=sixthDigit(e.codigo)||'';
             if(!digits.includes(dig)) continue;
             if(!e.fechaLimite&&!['8','9'].includes(dig)) continue;
+            // Skip finished processes
+            if(['t','li','s'].includes(e.estado)) continue;
             // Skip processes fully in the past with expired deadline (nothing to do)
             const lim2=e.fechaLimite?new Date(e.fechaLimite+'T00:00:00'):null;
             const proc2=new Date(date+'T00:00:00');
