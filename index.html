@@ -690,6 +690,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
           <select id="blSortBase" onchange="backlogSortBase=this.value;updateBlSortUI();renderBacklog()" onclick="event.stopPropagation()" style="font-size:10px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text1)" title="Ordenamiento base">
             <option value="original">↕ Original</option>
             <option value="digito">🔢 6to dígito</option>
+            <option value="cadena">🔗 Por cadena</option>
           </select>
           <button id="blSortFmtBtn" onclick="event.stopPropagation();backlogSortFormato=!backlogSortFormato;updateBlSortUI();renderBacklog()" style="font-size:10px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text1);cursor:pointer;display:none" title="Agrupar por formato dentro del dígito">🎨</button>
           <button id="blSortFechaBtn" onclick="event.stopPropagation();backlogSortFecha=!backlogSortFecha;updateBlSortUI();renderBacklog()" style="font-size:10px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;background:var(--surf2);color:var(--text1);cursor:pointer" title="Fecha límite más urgente primero">📅</button>
@@ -2305,10 +2306,11 @@ function updateBlSortUI(){
   const fechaBtn=document.getElementById('blSortFechaBtn');
   const base=document.getElementById('blSortBase');
   if(fmtBtn){
-    fmtBtn.style.display=backlogSortBase==='digito'?'inline-block':'none';
-    fmtBtn.style.background=backlogSortFormato&&backlogSortBase==='digito'?'var(--accent)':'var(--surf2)';
-    fmtBtn.style.color=backlogSortFormato&&backlogSortBase==='digito'?'#fff':'var(--text1)';
-    if(backlogSortBase!=='digito') backlogSortFormato=false;
+    const showFmt=backlogSortBase==='digito';
+    fmtBtn.style.display=showFmt?'inline-block':'none';
+    fmtBtn.style.background=backlogSortFormato&&showFmt?'var(--accent)':'var(--surf2)';
+    fmtBtn.style.color=backlogSortFormato&&showFmt?'#fff':'var(--text1)';
+    if(!showFmt) backlogSortFormato=false;
   }
   if(fechaBtn){
     fechaBtn.style.background=backlogSortFecha?'var(--accent)':'var(--surf2)';
@@ -2540,8 +2542,64 @@ function renderBacklog(){
       if(bucket!==lastBucket){lastBucket=bucket;blSep(bucketLabel[bucket],bucketColor[bucket],8);}
       addBlChip(entry,i);
     });
+  } else if(backlogSortBase==='cadena'){
+    // Dígito 3 → own section regardless of deps
+    const DIG3=new Set(indices.filter(i=>sixthDigit(backlog[i].codigo)==='3'));
+    const rest=indices.filter(i=>!DIG3.has(i));
+    // Build id→backlogIndex map
+    const idToIdx={};
+    rest.forEach(i=>{ if(backlog[i].id) idToIdx[backlog[i].id]=i; });
+    // Find root of chain for each entry
+    function findRoot(i,visited=new Set()){
+      if(visited.has(i)) return i;
+      visited.add(i);
+      const deps=(backlog[i].deps||[]).map(d=>d.targetId).filter(id=>id&&idToIdx[id]!==undefined);
+      return deps.length?findRoot(idToIdx[deps[0]],visited):i;
+    }
+    // Group by root
+    const chains={},rootOrder=[];
+    rest.forEach(i=>{
+      const root=findRoot(i);
+      if(!chains[root]){chains[root]=[];rootOrder.push(root);}
+      if(!chains[root].includes(i)) chains[root].push(i);
+    });
+    // Render chains
+    let sinCadenaShown=false;
+    rootOrder.forEach(rootIdx=>{
+      const members=chains[rootIdx];
+      // Sort: root first (no deps in backlog), then others
+      members.sort((a,b)=>{
+        const da=(backlog[a].deps||[]).filter(d=>d.targetId&&idToIdx[d.targetId]!==undefined).length;
+        const db=(backlog[b].deps||[]).filter(d=>d.targetId&&idToIdx[d.targetId]!==undefined).length;
+        return da-db;
+      });
+      if(backlogSortFecha) members.sort((a,b)=>fechaBucket(backlog[a].fechaLimite)-fechaBucket(backlog[b].fechaLimite)||((backlog[a].fechaLimite||FAR).localeCompare(backlog[b].fechaLimite||FAR)));
+      const isChain=members.length>1;
+      if(isChain){
+        const re=backlog[rootIdx];
+        blSep('🔗 '+(re.nombre||'?')+(re.lote?' · L'+re.lote:''),'var(--teal)',8);
+      } else {
+        if(!sinCadenaShown){sinCadenaShown=true;blSep('Sin cadena','var(--text3)',8);}
+      }
+      members.forEach(i=>addBlChip(backlog[i],i));
+    });
+    // Dígito 3 section
+    if(DIG3.size){
+      blSep('Dígito 3','var(--text2)',8);
+      [...DIG3].forEach(i=>addBlChip(backlog[i],i));
+    }
   } else {
-    indices.forEach(i=>addBlChip(backlog[i],i));
+    if(backlogSortFecha){
+      indices.sort((a,b)=>(fechaBucket(backlog[a].fechaLimite)-fechaBucket(backlog[b].fechaLimite))||((backlog[a].fechaLimite||FAR).localeCompare(backlog[b].fechaLimite||FAR)));
+      let lastBucket=null;
+      indices.forEach(i=>{
+        const bucket=fechaBucket(backlog[i].fechaLimite);
+        if(bucket!==lastBucket){lastBucket=bucket;blSep(bucketLabel[bucket],bucketColor[bucket],8);}
+        addBlChip(backlog[i],i);
+      });
+    } else {
+      indices.forEach(i=>addBlChip(backlog[i],i));
+    }
   }
 
 }
