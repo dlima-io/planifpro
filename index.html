@@ -5994,9 +5994,12 @@ async function gReloadFromSheet(){
     // Ensure grid has an entry for every default equip (even empty ones)
     for(const eq of DEFAULT_EQUIPS){ if(!ng[eq]) ng[eq]={}; }
     grid=ng;
-    // Merge backlog
+    // Build set of all IDs now in the grid (some may have moved from backlog)
+    const gridIds=new Set();
+    for(const eq of Object.keys(ng)) for(const entries of Object.values(ng[eq])) for(const e of entries) gridIds.add(e.id);
+    // Merge backlog: replace old entries with new ones, remove any now scheduled in grid
     const newBlIds=new Set(newBacklog.map(b=>b.id));
-    backlog=[...backlog.filter(b=>!newBlIds.has(b.id)),...newBacklog];
+    backlog=[...backlog.filter(b=>!newBlIds.has(b.id)&&!gridIds.has(b.id)),...newBacklog];
 
     // Second pass: resolve deps
     for(const {entry,depsStr} of rawDeps){
