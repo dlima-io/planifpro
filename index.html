@@ -5724,6 +5724,13 @@ async function gSaveNow(){
     const iE=hdrs.findIndex(h=>h==='equipo');
     const iD=hdrs.findIndex(h=>h==='fecha');
     const iID=hdrs.findIndex(h=>h==='id');
+    const iN=hdrs.findIndex(h=>h==='nombre'||h==='producto');
+    const iC=hdrs.findIndex(h=>h==='código'||h==='codigo');
+    const iL=hdrs.findIndex(h=>h==='lote');
+    const iQ=hdrs.findIndex(h=>h==='cantidad');
+    const iU=hdrs.findIndex(h=>h==='u.m.'||h==='unidad');
+    const iH=hdrs.findIndex(h=>h==='horas');
+    const iFm=hdrs.findIndex(h=>h==='formato');
     const iFL=hdrs.findIndex(h=>h.includes('límite')||h.includes('limite'));
     const iSt=hdrs.findIndex(h=>h==='estado');
     const iPos=hdrs.findIndex(h=>h==='pos.'||h==='pos'||h==='posición'||h==='posicion'||h==='orden');
