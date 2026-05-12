@@ -1187,6 +1187,8 @@ const CFG = {
 // ═══════════════════════════════════════════════
 
 
+const DEFAULT_EQUIPS = ['GVH 1', 'GVH 2 (ESSICCA)', 'GVS', 'KOMPRESSOR II (3094)', 'RIVA', 'KOMPRESSOR I (3095)', 'PAILA MC', 'ENCAPSULADO', 'IMPRENTA', 'EX S200 (PF01)', 'S300', 'S 300 E', 'S 300 D', 'CAM AV', 'CAM AV12', 'CAM PRX', 'BPF5 FABRIMA', 'CPF5 FABRIMA', 'MANUAL'];
+
 // ════════════ BOM ════════════
 
 let bomData = []; // Load BOM from file or Drive
@@ -1685,7 +1687,7 @@ function csvLine(line,sep){
 
 // ════════════ NEW PLAN ════════════
 function newPlan(){
-  grid={}; eqs=['GVH 1','GVH 2 (ESSICCA)','GVS','KOMPRESSOR II (3094)','RIVA','KOMPRESSOR I (3095)','PAILA MC','ENCAPSULADO','IMPRENTA','EX S200 (PF01)','S300','S 300 E','S 300 D','CAM AV','CAM AV12','CAM PRX','BPF5 FABRIMA','CPF5 FABRIMA','MANUAL'];
+  grid={}; eqs=[...DEFAULT_EQUIPS];
   for(const e of eqs) grid[e]={};
   origWb=null; hasChg=false; undoStack=[]; depHi=null;
   initPlan(); toast('Nuevo plan creado');
@@ -5984,9 +5986,11 @@ async function gReloadFromSheet(){
         ng[eq][dt].sort((a,b)=>(a._pos||0)-(b._pos||0));
       }
     }
-    // Merge with existing eqs list to preserve equip order
-    const allEqs=[...new Set([...eqs,...neqs])];
-    eqs=allEqs.filter(e=>neqs.includes(e)||ng[e]);
+    // Always start from DEFAULT_EQUIPS order, add sheet-only equips at end
+    const sheetOnlyEqs=neqs.filter(e=>!DEFAULT_EQUIPS.includes(e));
+    eqs=[...DEFAULT_EQUIPS, ...sheetOnlyEqs];
+    // Ensure grid has an entry for every default equip (even empty ones)
+    for(const eq of DEFAULT_EQUIPS){ if(!ng[eq]) ng[eq]={}; }
     grid=ng;
     // Merge backlog
     const newBlIds=new Set(newBacklog.map(b=>b.id));
