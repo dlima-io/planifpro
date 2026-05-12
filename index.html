@@ -1215,7 +1215,8 @@ const SESSION_START = new Date();
 // ── GOOGLE DRIVE / SHEETS ──
 const GAPI_CLIENT_ID = ''; // Set by user in settings
 const GAPI_SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly';
-let gToken = null;          // OAuth access token
+let gToken = null;
+let gReloading = false; // true during reload — blocks auto-save          // OAuth access token
 let gSheetId = null;        // Current spreadsheet ID
 let gSheetName = '';        // Spreadsheet name
 let gLastModified = null;   // Last known modified time (for polling)
@@ -5688,7 +5689,7 @@ async function gWriteMissingIds(){
 }
 
 function gScheduleSave(){
-  if(!gConnected||!gSheetId) return;
+  if(!gConnected||!gSheetId||gReloading) return; // no save during reload
   clearTimeout(gSaveTimer);
   gSaveTimer = setTimeout(gSaveNow, 2000);
 }
@@ -5909,6 +5910,7 @@ async function gEnsureSheet(sheetTitle){
 // ── LOAD from Google Sheets ───────────────────────────────────────
 async function gReloadFromSheet(){
   if(!gToken||!gSheetId) return;
+  gReloading=true;
   clearTimeout(gSaveTimer); gSaveTimer=null; // cancel pending saves before reload
   document.getElementById('driveChangeBanner').classList.remove('show');
   gSetStatus('saving','Cargando desde Drive…');
@@ -6054,8 +6056,10 @@ async function gReloadFromSheet(){
     gSetStatus('ok','☁ '+gSheetName+' — recargado '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}));
     toast('✓ Plan recargado desde Google Sheets ('+neqs.length+' equipos, '+newBacklog.length+' sin programar)');
     log('DRIVE LOAD','Cargado desde Google Sheets: '+gSheetName);
+    gReloading=false; // allow auto-save again after reload completes
     // IDs are written immediately by gWriteMissingIds() above
   } catch(err){
+    gReloading=false;
     gSetStatus('err','Error al cargar: '+err.message);
     toast('❌ Error cargando desde Drive: '+err.message);
     console.error(err);
