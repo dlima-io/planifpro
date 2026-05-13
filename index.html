@@ -654,6 +654,13 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
   <div class="vsep"></div>
   <button id="btnLinkMode" class="bg" onclick="toggleLinkMode()" title="Arrastrá un proceso sobre otro para enlazarlos">🔗 Enlazar</button>
   <div class="vsep"></div>
+  <div class="vsep"></div>
+  <button class="tbtn-icon" onclick="zoomOut()" title="Alejar (Ctrl+rueda)">－</button>
+  <button class="tbtn-icon" onclick="zoomReset()" title="Zoom 100%">⊙</button>
+  <button class="tbtn-icon" onclick="zoomIn()" title="Acercar (Ctrl+rueda)">＋</button>
+  <div class="vsep"></div>
+  <button class="tbtn" onclick="scrollToToday()" title="Ir al día de hoy">📍 Hoy</button>
+  <div class="vsep"></div>
   <span style="font-size:11px;color:var(--text3)">dbl-clic = editar · drag = mover · Shift+clic = selección múltiple</span>
 </div>
 <div id="linkModeBar">🔗 <strong>Modo enlace activo</strong> — arrastrá un proceso encima de otro para crear una dependencia. Hacé clic en '🔗 Enlazar' para salir.</div>
@@ -1230,6 +1237,9 @@ let grid = {};
 let eqs = [];      // equipment list in order
 let planDates = []; // [{date, key}]
 let view = 'g';
+let ganttZoom = 1.0; // zoom multiplier for column width
+const ZOOM_BASE = 118; // base --cw in px
+const ZOOM_MIN = 0.4, ZOOM_MAX = 3.0, ZOOM_STEP = 0.15;
 let hasChg = false;
 let undoStack = [];
 let origWb = null, origSn = 'PLANIFICACION';
@@ -1814,6 +1824,25 @@ function onGrpFilter(){
 }
 
 function ra(){ buildRange(); renderGantt(); if(view==='c') renderCol(); else scrollToToday(); }
+
+function applyZoom(){
+  const cw=Math.round(ZOOM_BASE*ganttZoom);
+  document.documentElement.style.setProperty('--cw', cw+'px');
+  renderGantt();
+}
+
+function zoomIn(){
+  ganttZoom=Math.min(ZOOM_MAX, ganttZoom+ZOOM_STEP);
+  applyZoom();
+}
+function zoomOut(){
+  ganttZoom=Math.max(ZOOM_MIN, ganttZoom-ZOOM_STEP);
+  applyZoom();
+}
+function zoomReset(){
+  ganttZoom=1.0;
+  applyZoom();
+}
 
 function scrollToToday(){
   const todK=dk(new Date());
@@ -6640,6 +6669,12 @@ try{
 let tT; function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(tT);tT=setTimeout(()=>t.classList.remove('show'),2600);}
 
 // ════════════ KEYBOARD ════════════
+document.getElementById('gv').addEventListener('wheel', e=>{
+  if(!e.ctrlKey) return;
+  e.preventDefault();
+  if(e.deltaY < 0) zoomIn(); else zoomOut();
+}, {passive:false});
+
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){closeModal();closeEP();acHide();depHi=null;clearDepLines();clearBlDepLines();blDepHi=null;document.querySelectorAll('.bl-chip.bl-dep-active').forEach(el=>el.classList.remove('bl-dep-active'));hideCtxMenu();clearSel();selMoveMode=false;closeLegend();closeCalPanel();closeFmtPanel();closeDlPanel();closeBomPanel();closeGConfig();}
   if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo();}
