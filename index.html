@@ -272,6 +272,10 @@ body.light .th-holiday{background:rgba(196,48,48,.1)!important;color:#c43030!imp
 .dc.dov{background:rgba(79,142,247,.22)!important;outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
 
 /* CHIPS — stack vertically inside cell */
+.gantt-sep-1{background:var(--accent);color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;padding:5px 10px;position:sticky;left:0}
+.gantt-sep-2{background:var(--surf3);color:var(--accent);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:4px 10px;border-top:2px solid var(--accent);border-bottom:1px solid var(--border2);position:sticky;left:0}
+body.light .gantt-sep-1{background:var(--accent);color:#fff}
+body.light .gantt-sep-2{background:var(--surf2);color:var(--accent);border-top-color:var(--accent)}
 .chips-wrap{display:flex;flex-direction:column;gap:2px;min-height:46px}
 .chip{background:var(--surf3);border:1px solid var(--border2);border-left:3px solid var(--border2);border-radius:4px;padding:3px 5px 3px 5px;font-size:10px;line-height:1.3;color:var(--text);word-break;display:flex;flex-direction:column;gap:2px}break-word;cursor:grab;user-select:none;position:relative;transition:box-shadow .1s;user-select:none}
 .chip:hover{box-shadow:0 2px 8px rgba(0,0,0,.5)}
@@ -1188,6 +1192,20 @@ const CFG = {
 // ═══════════════════════════════════════════════
 
 
+const GANTT_GROUPS = [
+  { type:'group', label:'SÓLIDOS', children:[
+    { type:'subgroup', label:'GRANULADO', children:['GVH 1','GVH 2 (ESSICCA)','GVS'] },
+    { type:'subgroup', label:'COMPRESIÓN, RECUBRIMIENTO Y ENCAPSULADO', children:['KOMPRESSOR II (3094)','RIVA','KOMPRESSOR I (3095)','PAILA MC','ENCAPSULADO'] },
+  ]},
+  { type:'group', label:'ACONDICIONAMIENTO', children:[
+    { type:'subgroup', label:'ALUMINIOS', children:['IMPRENTA'] },
+    { type:'subgroup', label:'BLISTERAS', children:['EX S200 (PF01)','S300','S 300 E','S 300 D'] },
+    { type:'subgroup', label:'ESTUCHADORAS', children:['CAM AV','CAM AV12','CAM PRX'] },
+    { type:'subgroup', label:'FABRIMA', children:['BPF5 FABRIMA','CPF5 FABRIMA'] },
+    { type:'eq', label:'MANUAL' },
+  ]},
+];
+
 const DEFAULT_EQUIPS = ['GVH 1', 'GVH 2 (ESSICCA)', 'GVS', 'KOMPRESSOR II (3094)', 'RIVA', 'KOMPRESSOR I (3095)', 'PAILA MC', 'ENCAPSULADO', 'IMPRENTA', 'EX S200 (PF01)', 'S300', 'S 300 E', 'S 300 D', 'CAM AV', 'CAM AV12', 'CAM PRX', 'BPF5 FABRIMA', 'CPF5 FABRIMA', 'MANUAL'];
 
 // ════════════ BOM ════════════
@@ -1880,8 +1898,56 @@ function renderGantt(){
     }
   }
 
+  // Build ordered list with separators
+  function buildVisRows(visEqs){
+    const rows=[];
+    // Check if any separator groups apply
+    if(!eqFilter){
+      // Build a flat ordered list respecting GANTT_GROUPS
+      const handled=new Set();
+      for(const g of GANTT_GROUPS){
+        let gAdded=false;
+        if(g.type==='group'){
+          for(const sub of g.children){
+            if(sub.type==='subgroup'){
+              const subEqs=sub.children.filter(e=>visEqs.includes(e));
+              if(!subEqs.length) continue;
+              if(!gAdded){rows.push({type:'sep1',label:g.label});gAdded=true;}
+              rows.push({type:'sep2',label:sub.label});
+              subEqs.forEach(e=>{rows.push({type:'eq',eq:e});handled.add(e);});
+            } else if(sub.type==='eq'){
+              if(!visEqs.includes(sub.label)) continue;
+              if(!gAdded){rows.push({type:'sep1',label:g.label});gAdded=true;}
+              rows.push({type:'eq',eq:sub.label});
+              handled.add(sub.label);
+            }
+          }
+        }
+      }
+      // Add any equips not in the group structure
+      visEqs.filter(e=>!handled.has(e)).forEach(e=>rows.push({type:'eq',eq:e}));
+    } else {
+      visEqs.forEach(e=>rows.push({type:'eq',eq:e}));
+    }
+    return rows;
+  }
+
+  const eqFilter=document.getElementById('seq').value;
+  const visRows=buildVisRows(visEqs);
+  const colCount=planDates.length+1;
+
   let bH='';
-  for(const eq of visEqs){
+  for(const row of visRows){
+    if(row.type==='sep1'){
+      bH+=`<tr><td colspan="${colCount}" class="gantt-sep-1">${esc(row.label)}</td></tr>`;
+      continue;
+    }
+    if(row.type==='sep2'){
+      bH+=`<tr><td colspan="${colCount}" class="gantt-sep-2">${esc(row.label)}</td></tr>`;
+      continue;
+    }
+    const eq=row.eq;
+    {
     // Build a map of continuation chips: dateKey -> [{entry, srcDate, dayNum, totalDays, horasThisDay}]
     const eqConts={}; // local per-equip continuations
     continuations=eqConts; // expose globally for debug
@@ -1976,6 +2042,7 @@ function renderGantt(){
       }${loadLabel?`<div class="load-warn ${loadCls}">${loadLabel}</div>`:''}</td>`;
     }
     bH+=row+'</tr>';
+    }
   }
   body.innerHTML=bH;
   clearDepLines();
