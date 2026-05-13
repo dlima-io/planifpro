@@ -630,6 +630,12 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
   </div>
   <div class="vsep"></div>
   <div class="tg">
+    <span class="tl">Grupo</span>
+    <select id="sgrp" onchange="onGrpFilter()" style="max-width:120px">
+      <option value="">Todos</option>
+    </select>
+  </div>
+  <div class="tg">
     <span class="tl">Equipo</span>
     <select id="seq" onchange="ra()"><option value="">Todos</option></select>
   </div>
@@ -1764,6 +1770,18 @@ function initPlan(){
 
   const se=document.getElementById('seq');
   se.innerHTML='<option value="">Todos</option>'+eqs.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+  // Populate group filter
+  const sg=document.getElementById('sgrp');
+  if(sg){
+    const opts=['<option value="">Todos</option>'];
+    for(const g of GANTT_GROUPS){
+      opts.push(`<option value="G:${esc(g.label)}">${esc(g.label)}</option>`);
+      for(const sub of g.children){
+        if(sub.type==='subgroup') opts.push(`<option value="S:${esc(sub.label)}">&nbsp;&nbsp;${esc(sub.label)}</option>`);
+      }
+    }
+    sg.innerHTML=opts.join('');
+  }
 
   ra();
   initDragDrop();
@@ -1784,6 +1802,15 @@ function buildRange(){
   planDates=[];
   for(let d=new Date(fy,fm2-1,1);d<=new Date(ty,tm,0);d.setDate(d.getDate()+1))
     planDates.push({date:new Date(d),key:dk(new Date(d))});
+}
+
+function onGrpFilter(){
+  const val=document.getElementById('sgrp').value;
+  const seqEl=document.getElementById('seq');
+  if(!val){ seqEl.value=''; ra(); return; }
+  // Clear equip filter
+  seqEl.value='';
+  ra();
 }
 
 function ra(){ buildRange(); renderGantt(); if(view==='c') renderCol(); else scrollToToday(); }
@@ -1855,7 +1882,21 @@ function computeSpan(startKey, horas, dates, equip, alreadyUsedDay1){
 function renderGantt(){
   if(view!=='g') return;
   const eqF=document.getElementById('seq').value;
-  const visEqs=eqF?[eqF]:eqs;
+  const grpF=document.getElementById('sgrp')?.value||'';
+  let visEqs=eqF?[eqF]:eqs;
+  if(!eqF && grpF){
+    if(grpF.startsWith('G:')){
+      const gName=grpF.slice(2);
+      const g=GANTT_GROUPS.find(g=>g.label===gName);
+      if(g) visEqs=g.children.flatMap(s=>s.type==='subgroup'?s.children:[s.label]).filter(e=>eqs.includes(e));
+    } else if(grpF.startsWith('S:')){
+      const sName=grpF.slice(2);
+      for(const g of GANTT_GROUPS){
+        const sub=g.children.find(s=>s.type==='subgroup'&&s.label===sName);
+        if(sub){ visEqs=sub.children.filter(e=>eqs.includes(e)); break; }
+      }
+    }
+  }
   const todK=dk(new Date());
   const head=document.getElementById('gh'), body=document.getElementById('gb');
 
@@ -1939,11 +1980,17 @@ function renderGantt(){
   let bH='';
   for(const row of visRows){
     if(row.type==='sep1'){
-      bH+=`<tr><td colspan="${colCount}" class="gantt-sep-1">${esc(row.label)}</td></tr>`;
+      bH+=`<tr style="background:var(--accent)">
+        <td style="position:sticky;left:0;z-index:25;background:var(--accent)!important;color:#fff!important;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;padding:6px 14px;border:none;width:var(--lw);min-width:var(--lw);white-space:nowrap">${esc(row.label)}</td>
+        <td colspan="${colCount-1}" style="background:var(--accent)!important;border:none"></td>
+      </tr>`;
       continue;
     }
     if(row.type==='sep2'){
-      bH+=`<tr><td colspan="${colCount}" class="gantt-sep-2">${esc(row.label)}</td></tr>`;
+      bH+=`<tr style="background:var(--surf3)">
+        <td style="position:sticky;left:0;z-index:25;background:var(--surf3)!important;color:var(--accent)!important;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:4px 14px;border-top:2px solid var(--accent)!important;border-bottom:1px solid var(--border2);width:var(--lw);min-width:var(--lw);white-space:nowrap">${esc(row.label)}</td>
+        <td colspan="${colCount-1}" style="background:var(--surf3)!important;border-top:2px solid var(--accent)!important;border-bottom:1px solid var(--border2)"></td>
+      </tr>`;
       continue;
     }
     const eq=row.eq;
