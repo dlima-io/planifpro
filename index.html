@@ -2546,38 +2546,56 @@ function renderBacklog(){
     // Dígito 3 → own section regardless of deps
     const DIG3=new Set(indices.filter(i=>sixthDigit(backlog[i].codigo)==='3'));
     const rest=indices.filter(i=>!DIG3.has(i));
-    // Build id→backlogIndex map
+    // Build id→backlogIndex map (for backlog entries only)
     const idToIdx={};
     rest.forEach(i=>{ if(backlog[i].id) idToIdx[backlog[i].id]=i; });
-    // Find root of chain for each entry
-    function findRoot(i,visited=new Set()){
-      if(visited.has(i)) return i;
-      visited.add(i);
-      const deps=(backlog[i].deps||[]).map(d=>d.targetId).filter(id=>id&&idToIdx[id]!==undefined);
-      return deps.length?findRoot(idToIdx[deps[0]],visited):i;
+
+    // Find the ultimate root entry (may be in grid or backlog)
+    // Returns {entry, inBacklog, blIdx}
+    function findUltimateRoot(entry, visited=new Set()){
+      if(!entry||visited.has(entry.id)) return {entry, inBacklog:false, blIdx:-1};
+      visited.add(entry.id);
+      const deps=(entry.deps||[]).map(d=>d.targetId).filter(Boolean);
+      for(const targetId of deps){
+        // Check backlog first
+        if(idToIdx[targetId]!==undefined){
+          return findUltimateRoot(backlog[idToIdx[targetId]], visited);
+        }
+        // Check grid
+        const gridEntry=findEntryById(targetId);
+        if(gridEntry) return findUltimateRoot(gridEntry, visited);
+      }
+      // No resolvable deps → this IS the root
+      const blIdx=idToIdx[entry.id];
+      return {entry, inBacklog:blIdx!==undefined, blIdx:blIdx!==undefined?blIdx:-1};
     }
-    // Group by root
-    const chains={},rootOrder=[];
+
+    // Group by root key (id of ultimate root)
+    const chains={},rootOrder=[],rootEntries={};
     rest.forEach(i=>{
-      const root=findRoot(i);
-      if(!chains[root]){chains[root]=[];rootOrder.push(root);}
-      if(!chains[root].includes(i)) chains[root].push(i);
+      const {entry:rootEntry}=findUltimateRoot(backlog[i]);
+      const key=rootEntry?.id||('_'+i);
+      if(!chains[key]){chains[key]=[];rootOrder.push(key);rootEntries[key]=rootEntry;}
+      if(!chains[key].includes(i)) chains[key].push(i);
     });
+
     // Render chains
     let sinCadenaShown=false;
-    rootOrder.forEach(rootIdx=>{
-      const members=chains[rootIdx];
-      // Sort: root first (no deps in backlog), then others
+    rootOrder.forEach(key=>{
+      const members=chains[key];
+      const rootEntry=rootEntries[key];
+      // Sort: entries with fewer backlog deps first
       members.sort((a,b)=>{
         const da=(backlog[a].deps||[]).filter(d=>d.targetId&&idToIdx[d.targetId]!==undefined).length;
         const db=(backlog[b].deps||[]).filter(d=>d.targetId&&idToIdx[d.targetId]!==undefined).length;
         return da-db;
       });
       if(backlogSortFecha) members.sort((a,b)=>fechaBucket(backlog[a].fechaLimite)-fechaBucket(backlog[b].fechaLimite)||((backlog[a].fechaLimite||FAR).localeCompare(backlog[b].fechaLimite||FAR)));
-      const isChain=members.length>1;
-      if(isChain){
-        const re=backlog[rootIdx];
-        blSep('🔗 '+(re.nombre||'?')+(re.lote?' · L'+re.lote:''),'var(--teal)',8);
+      // Determine if it's a real chain (has deps to anything) or standalone
+      const hasAnyDep=members.some(i=>(backlog[i].deps||[]).length>0);
+      if(hasAnyDep||members.length>1){
+        const label=(rootEntry?.nombre||'?')+(rootEntry?.lote?' · L'+rootEntry.lote:'');
+        blSep('🔗 '+label,'var(--teal)',8);
       } else {
         if(!sinCadenaShown){sinCadenaShown=true;blSep('Sin cadena','var(--text3)',8);}
       }
