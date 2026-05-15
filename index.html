@@ -583,6 +583,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
     <button class="tbtn" onclick="openEP()" title="Gestionar equipos">⚙ Equipos</button>
     <button class="tbtn" onclick="openLegend()" title="Referencia">📖 Ayuda</button>
     <button class="tbtn-new" onclick="newPlan()" title="Nuevo plan">✚ Nuevo</button>
+    <button id="mesaBtn" class="tbtn" onclick="openMesa()" title="Mesa de trabajo" style="position:relative">🗂 Mesa<span id="mesaBtnBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--warn);color:#fff;border-radius:8px;font-size:9px;padding:1px 5px;font-weight:700;animation:pulse .8s infinite"></span></button>
   </div>
 </div>
 
@@ -1094,6 +1095,7 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
   <div class="ctx-item" id="ctxUnschedule" onclick="ctxUnscheduleEntry()">↩ Desprogramar</div>
   <div class="ctx-item ctx-danger" id="ctxDel" onclick="ctxDelEntry()">🗑 Eliminar</div>
   <div class="ctx-item" id="ctxFaltantes" onclick="ctxOpenFaltantes()">📦 Faltantes</div>
+  <div class="ctx-item" id="ctxMesa" onclick="ctxAddToMesa()">🗂 Mover a mesa</div>
 </div>
 
 <div id="modal">
@@ -1186,6 +1188,17 @@ body.light #driveChangeBanner{background:#fdfaf7;border-color:#c47a0a;color:#b45
   </div>
 </div>
 
+<div id="mesaPanel" style="display:none;position:fixed;bottom:20px;right:20px;width:280px;max-height:45vh;background:var(--surf);border:1.5px solid var(--border2);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:600;display:flex;flex-direction:column;overflow:hidden;min-height:48px">
+  <div id="mesaHeader" style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surf2);border-bottom:1px solid var(--border);cursor:grab;border-radius:10px 10px 0 0;user-select:none;flex-shrink:0">
+    <span style="font-size:13px">🗂</span>
+    <span style="font-size:12px;font-weight:700;flex:1">Mesa de trabajo</span>
+    <span id="mesaCount" style="font-size:10px;background:var(--warn);color:#fff;border-radius:8px;padding:1px 6px;font-weight:700;display:none"></span>
+    <button id="mesaCloseBtn" onclick="toggleMesa()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0 2px;line-height:1" title="Ocultar">−</button>
+  </div>
+  <div id="mesaBody" style="overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px;flex:1">
+    <div id="mesaEmpty" style="font-size:11px;color:var(--text3);text-align:center;padding:12px;font-style:italic">Arrastrá procesos aquí para guardarlos temporalmente</div>
+  </div>
+</div>
 <div id="toast"></div>
 
 <script>
@@ -1429,7 +1442,9 @@ let backlogOpen = true;
 let backlogSortBase = 'original';  // 'original' | 'digito'
 let backlogSortFormato = false;    // only active when base='digito'
 let backlogSortFecha = false;      // always combinable
-let clipboard = null; // {entries:[], isCut:bool, srcEquip, srcDate, srcIndices}
+let clipboard = null;
+let mesa = []; // [{entry, srcEq, srcDate}] — zona de trabajo temporal
+ // {entries:[], isCut:bool, srcEquip, srcDate, srcIndices}
 let ctxTarget = null; // {equip, date, idx} — right-clicked target for paste // {equip, date, idx} — chip being highlighted
 
 // ════════════ FILE LOADING ════════════
@@ -2326,7 +2341,7 @@ function showCtxMenu(e, equip, date, idx){
   document.getElementById('ctxUnschedule').style.display = isChip ? 'block' : 'none';
   document.getElementById('ctxDel').style.display  = isChip ? 'block' : 'none';
   document.getElementById('ctxFaltantes').style.display = isChip ? 'block' : 'none';
-  document.getElementById('ctxFaltantes').style.display = isChip ? 'block' : 'none';
+  document.getElementById('ctxMesa').style.display = isChip ? 'block' : 'none';
   document.getElementById('ctxPaste').style.display = hasClip ? 'block' : 'none';
   document.getElementById('ctxSepPaste').style.display = hasClip ? 'block' : 'none';
   document.querySelector('.ctx-sep').style.display = (isChip||hasClip) ? 'block' : 'none';
@@ -2415,6 +2430,12 @@ function ctxEditEntry(){
   const {equip,date,idx} = ctxTarget;
   hideCtxMenu();
   openModal(equip, date, idx);
+}
+
+function ctxAddToMesa(){
+  if(!ctxTarget||ctxTarget.idx===null||ctxTarget.idx===undefined) return;
+  addToMesa(ctxTarget.equip, ctxTarget.date, ctxTarget.idx);
+  hideCtxMenu();
 }
 
 function ctxOpenFaltantes(){
@@ -3452,6 +3473,12 @@ function initDragDrop(){
       }
 
       // Check if dropped on backlog panel → unschedule
+      // Check if dropped on mesa panel
+      const onMesa = elUnder && elUnder.closest('#mesaPanel');
+      if(onMesa && drag){
+        addToMesa(drag.equip, drag.date, drag.idx);
+        drag=null; dragOverTd=null; srcChip=null; return;
+      }
       const onBacklog = elUnder && (elUnder.closest('#backlogPanel') || elUnder.closest('#backlogScroll'));
       if(onBacklog && drag){
         const dragKey=`${drag.equip}|${drag.date}|${drag.idx}`;
@@ -4037,7 +4064,12 @@ function saveXlsxCols(){
   XLSX.writeFile(wb,'planificacion_columnas.xlsx');
   log('EXPORTAR', 'Excel Columnas: planificacion_columnas.xlsx');
   dlBlob(buildLogTxt(), 'planificacion_log_'+fmtLogFilename()+'.txt', 'text/plain;charset=utf-8');
-  hasChg=false;updBadge();toast('Excel columnas + log guardados ✓');
+  hasChg=false;updBadge();
+// Load mesa from storage and init dragging
+loadMesaFromStorage();
+if(mesa.length){ openMesa(); renderMesa(); }
+document.addEventListener('DOMContentLoaded', initMesaDrag);
+setTimeout(initMesaDrag, 500);toast('Excel columnas + log guardados ✓');
 }
 
 function loadXlsxCols(wb){
@@ -6646,6 +6678,164 @@ try{
     }
   }
 }catch(e){}
+
+// ════════════ MESA DE TRABAJO ════════════
+
+function saveMesaToStorage(){
+  try{ localStorage.setItem('planifMesa', JSON.stringify(mesa)); }catch(e){}
+}
+
+function loadMesaFromStorage(){
+  try{
+    const saved=localStorage.getItem('planifMesa');
+    if(saved){ mesa=JSON.parse(saved)||[]; }
+  }catch(e){ mesa=[]; }
+}
+
+function openMesa(){
+  const panel=document.getElementById('mesaPanel');
+  panel.style.display='flex';
+  renderMesa();
+}
+
+function toggleMesa(){
+  const panel=document.getElementById('mesaPanel');
+  if(mesa.length>0){ toast('Hay procesos en la mesa — primero programalos'); return; }
+  panel.style.display='none';
+}
+
+function addToMesa(eq, date, idx){
+  const entries=grid[eq]?.[date];
+  if(!entries) return;
+  const entry=entries[idx];
+  if(!entry) return;
+  pushUndo();
+  // Remove from grid
+  entries.splice(idx,1);
+  if(!entries.length) delete grid[eq][date];
+  // Add to mesa
+  mesa.push({entry:JSON.parse(JSON.stringify(entry)), srcEq:eq, srcDate:date});
+  saveMesaToStorage();
+  markChg(); renderGantt(); renderMesa();
+  // Show panel
+  document.getElementById('mesaPanel').style.display='flex';
+  toast('📋 "'+entry.nombre+'" → Mesa de trabajo');
+  log('MESA','Agregado: "'+entry.nombre+'" ('+eq+' · '+dispDate(date)+')');
+}
+
+function removeFromMesa(mesaIdx, destEq, destDate){
+  if(mesaIdx<0||mesaIdx>=mesa.length) return;
+  const item=mesa[mesaIdx];
+  if(!grid[destEq]) grid[destEq]={};
+  if(!grid[destEq][destDate]) grid[destEq][destDate]=[];
+  if(grid[destEq][destDate].length>=CFG.MAX_CHIPS_CELDA){ toast('Sin lugar en '+destEq+' · '+dispDate(destDate)); return; }
+  pushUndo();
+  const entry=JSON.parse(JSON.stringify(item.entry));
+  grid[destEq][destDate].push(entry);
+  mesa.splice(mesaIdx,1);
+  saveMesaToStorage();
+  markChg(); renderGantt(); renderMesa();
+  toast('✓ "'+entry.nombre+'" → '+destEq+' · '+dispDate(destDate));
+  log('MESA','Programado: "'+entry.nombre+'" → '+destEq+' · '+dispDate(destDate));
+}
+
+function renderMesa(){
+  const body=document.getElementById('mesaBody');
+  const empty=document.getElementById('mesaEmpty');
+  const count=document.getElementById('mesaCount');
+  const badge=document.getElementById('mesaBtnBadge');
+  const closeBtn=document.getElementById('mesaCloseBtn');
+  // Update badge
+  if(count) { count.textContent=mesa.length||''; count.style.display=mesa.length?'inline':'none'; }
+  if(badge) { badge.textContent=mesa.length||''; badge.style.display=mesa.length?'inline':'none'; }
+  if(closeBtn) closeBtn.style.display=mesa.length?'none':'inline'; // can't close if has items
+  // Clear chips
+  body.querySelectorAll('.mesa-chip').forEach(el=>el.remove());
+  if(!mesa.length){ empty.style.display='block'; return; }
+  empty.style.display='none';
+  mesa.forEach((item,i)=>{
+    const div=document.createElement('div');
+    div.className='mesa-chip';
+    div.dataset.mesaIdx=i;
+    div.style.cssText='background:var(--surf2);border:1px solid var(--border2);border-left:3px solid var(--warn);border-radius:4px;padding:6px 8px;font-size:10px;cursor:grab;user-select:none;display:flex;flex-direction:column;gap:3px';
+    div.title='De: '+item.srcEq+' · '+dispDate(item.srcDate);
+    div.innerHTML=`<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.entry.nombre)}</div>
+      <div style="font-size:9px;color:var(--text3)">${esc(item.srcEq)} · ${dispDate(item.srcDate)}${item.entry.horas?' · '+item.entry.horas+'h':''}</div>`;
+    // Right-click to remove
+    div.addEventListener('contextmenu',e=>{ e.preventDefault(); if(confirm('¿Devolver "'+item.entry.nombre+'" al backlog?')){ mesa.splice(i,1); saveMesaToStorage(); renderMesa(); toast('Devuelto al backlog'); } });
+    // Drag to Gantt
+    div.addEventListener('mousedown', mesaDragStart);
+    body.appendChild(div);
+  });
+}
+
+let mesaDrag=null;
+function mesaDragStart(e){
+  if(e.button!==0) return;
+  const div=e.currentTarget;
+  const idx=parseInt(div.dataset.mesaIdx);
+  const item=mesa[idx];
+  if(!item) return;
+  let startX=e.clientX,startY=e.clientY,started=false,ghostEl=null,overTd=null;
+  mesaDrag={idx,item};
+  function onMove(ev){
+    const dx=ev.clientX-startX,dy=ev.clientY-startY;
+    if(!started&&Math.sqrt(dx*dx+dy*dy)<5) return;
+    if(!started){
+      started=true; div.style.opacity='.3';
+      ghostEl=document.createElement('div');
+      ghostEl.style.cssText='position:fixed;pointer-events:none;z-index:9999;background:var(--surf3);border:1px solid var(--warn);border-left:3px solid var(--warn);border-radius:4px;padding:4px 8px;font-size:10px;color:var(--text);max-width:160px;word-break:break-word;box-shadow:0 8px 24px rgba(0,0,0,.5);transform:rotate(-2deg) scale(1.04)';
+      ghostEl.textContent=item.entry.nombre;
+      document.body.appendChild(ghostEl);
+    }
+    if(ghostEl){ghostEl.style.left=ev.clientX+14+'px';ghostEl.style.top=ev.clientY+14+'px';}
+    ghostEl.style.display='none';
+    const elUnder=document.elementFromPoint(ev.clientX,ev.clientY);
+    ghostEl.style.display='';
+    const td=elUnder?elUnder.closest('td.dc'):null;
+    if(overTd&&overTd!==td) overTd.classList.remove('dov');
+    if(td){td.classList.add('dov');overTd=td;}else{overTd=null;}
+  }
+  function onUp(ev){
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',onUp);
+    if(ghostEl){ghostEl.remove();ghostEl=null;}
+    div.style.opacity='';
+    if(overTd) overTd.classList.remove('dov');
+    if(!started){mesaDrag=null;return;}
+    const elUnder=document.elementFromPoint(ev.clientX,ev.clientY);
+    const td=elUnder?elUnder.closest('td.dc'):null;
+    if(td&&mesaDrag) removeFromMesa(mesaDrag.idx, td.dataset.eq, td.dataset.date);
+    mesaDrag=null;
+  }
+  document.addEventListener('mousemove',onMove);
+  document.addEventListener('mouseup',onUp);
+  e.preventDefault();
+}
+
+// Make mesa panel draggable
+function initMesaDrag(){
+  const panel=document.getElementById('mesaPanel');
+  const header=document.getElementById('mesaHeader');
+  if(!panel||!header) return;
+  let ox=0,oy=0,dragging=false;
+  header.addEventListener('mousedown',e=>{
+    if(e.target.tagName==='BUTTON') return;
+    dragging=true;
+    const r=panel.getBoundingClientRect();
+    ox=e.clientX-r.left; oy=e.clientY-r.top;
+    header.style.cursor='grabbing';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!dragging) return;
+    const x=Math.max(0,Math.min(e.clientX-ox, window.innerWidth-panel.offsetWidth));
+    const y=Math.max(0,Math.min(e.clientY-oy, window.innerHeight-panel.offsetHeight));
+    panel.style.left=x+'px'; panel.style.top=y+'px';
+    panel.style.right='auto'; panel.style.bottom='auto';
+  });
+  document.addEventListener('mouseup',()=>{ dragging=false; header.style.cursor='grab'; });
+}
 
 function updBadge(){document.getElementById('chgBadge').style.display=hasChg?'inline-block':'none';}
 
